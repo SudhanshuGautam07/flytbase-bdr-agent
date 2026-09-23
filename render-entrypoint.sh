@@ -15,19 +15,11 @@ export N8N_DEFAULT_BINARY_DATA_MODE="filesystem"
 
 mkdir -p "$N8N_USER_FOLDER" "$DATA_DIR"
 
-# Generate fixed-ID workflows, import idempotently, then publish each workflow.
+# Generate fixed-ID workflows, import idempotently, and activate before server start.
+# n8n 1.x registers imported production webhooks and executes Code nodes in-process.
 python3 /app/workflows/prepare_render_workflows.py
 n8n import:workflow --separate --input=/app/render_workflows
-for workflow_id in \
-  TSRCH00000000001 TFETCH0000000002 TLLM000000000003 \
-  A1ICP00000000001 A2DISC0000000001 A3VERI0000000001 A4CONT0000000001 \
-  A5CVER0000000001 A6RSCH0000000001 A7MAIL0000000001 A8FACT0000000001 \
-  MASTER0000000001; do
-  n8n publish:workflow --id="$workflow_id"
-done
-# CLI import/publish creates versions but may leave trigger workflows inactive in n8n 2.x.
-# Set active atomically while n8n is stopped, then start n8n so it registers webhooks.
-python3 /app/workflows/activate_render_db.py
+n8n update:workflow --all --active=true
 
 # n8n is private inside the container; only FastAPI binds Render's public PORT.
 n8n start &
