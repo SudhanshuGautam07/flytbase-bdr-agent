@@ -14,10 +14,16 @@ export N8N_DEFAULT_BINARY_DATA_MODE="filesystem"
 
 mkdir -p "$N8N_USER_FOLDER" "$DATA_DIR"
 
-# Generate fixed-ID workflows, import idempotently, then activate every workflow.
+# Generate fixed-ID workflows, import idempotently, then publish each workflow.
 python3 /app/workflows/prepare_render_workflows.py
 n8n import:workflow --separate --input=/app/render_workflows
-n8n update:workflow --all --active=true
+for workflow_id in \
+  TSRCH00000000001 TFETCH0000000002 TLLM000000000003 \
+  A1ICP00000000001 A2DISC0000000001 A3VERI0000000001 A4CONT0000000001 \
+  A5CVER0000000001 A6RSCH0000000001 A7MAIL0000000001 A8FACT0000000001 \
+  MASTER0000000001; do
+  n8n publish:workflow --id="$workflow_id"
+done
 
 # n8n is private inside the container; only FastAPI binds Render's public PORT.
 n8n start &
