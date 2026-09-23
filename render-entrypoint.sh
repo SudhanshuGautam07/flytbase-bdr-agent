@@ -21,13 +21,17 @@ python3 /app/workflows/prepare_render_workflows.py
 n8n import:workflow --separate --input=/app/render_workflows
 n8n update:workflow --all --active=true
 
-# n8n is private inside the container; only FastAPI binds Render's public PORT.
+# Internal evidence API used by workflow Code nodes (their stable container URL is :8000).
+uvicorn app.server:app --host 127.0.0.1 --port 8000 --workers 1 &
+INTERNAL_API_PID=$!
+
+# n8n is private inside the container; only the final FastAPI listener binds Render's public PORT.
 n8n start &
 N8N_PID=$!
 
 cleanup() {
-  kill "$N8N_PID" 2>/dev/null || true
-  wait "$N8N_PID" 2>/dev/null || true
+  kill "$N8N_PID" "$INTERNAL_API_PID" 2>/dev/null || true
+  wait "$N8N_PID" "$INTERNAL_API_PID" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 
