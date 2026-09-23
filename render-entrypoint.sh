@@ -26,6 +26,9 @@ for workflow_id in \
   MASTER0000000001; do
   n8n publish:workflow --id="$workflow_id"
 done
+# CLI import/publish creates versions but may leave trigger workflows inactive in n8n 2.x.
+# Set active atomically while n8n is stopped, then start n8n so it registers webhooks.
+python3 /app/workflows/activate_render_db.py
 
 # n8n is private inside the container; only FastAPI binds Render's public PORT.
 n8n start &
