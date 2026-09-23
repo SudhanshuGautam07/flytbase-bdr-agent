@@ -1,0 +1,22 @@
+# Secrets
+.env
+*.pem
+*.key
+
+# Runtime data
+data/
+render_workflows/
+workflows/ids.json
+
+# Local dependencies / caches
+vendor/
+node_modules/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.n8n/
+
+# OS/editor
+.DS_Store
+.vscode/
+.idea/

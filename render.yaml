@@ -1,0 +1,39 @@
+services:
+  - type: web
+    name: flytbase-bdr-agent
+    runtime: docker
+    region: singapore
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /
+    autoDeployTrigger: commit
+    envVars:
+      - key: LLM_PROVIDER
+        value: openai
+      - key: OPENAI_BASE_URL
+        value: https://api.atria-asi.ai/v1
+      - key: LLM_MODEL
+        value: Atria-Dawn-Preview
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: BRAVE_API_KEY
+        sync: false
+      - key: SERPER_API_KEY
+        sync: false
+      - key: TAVILY_API_KEY
+        sync: false
+      - key: N8N_ENCRYPTION_KEY
+        generateValue: true
+      - key: N8N_BLOCK_ENV_ACCESS_IN_NODE
+        value: "false"
+      - key: N8N_USER_FOLDER
+        value: /var/data/n8n
+      - key: DATA_DIR
+        value: /var/data/bdr
+      - key: N8N_WEBHOOK
+        value: http://127.0.0.1:5678/webhook/master
+    disk:
+      name: flytbase-bdr-data
+      mountPath: /var/data
+      sizeGB: 1

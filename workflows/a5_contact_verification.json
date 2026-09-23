@@ -1,0 +1,324 @@
+{
+ "name": "BDR :: A5 Contact Verification",
+ "nodes": [
+  {
+   "parameters": {
+    "inputSource": "passthrough"
+   },
+   "id": "c063b466-82ab-4ce4-b1e9-513c45ae0b8e",
+   "name": "Trigger",
+   "type": "n8n-nodes-base.executeWorkflowTrigger",
+   "typeVersion": 1.2,
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "jsCode": "\nconst t = $input.first().json;\nconst campaign = t.campaign;\nconst contacts = Array.isArray(t.contacts) ? t.contacts : [];\nconst cs = contacts.slice(0, 20);\nif (!cs.length) {\n  return [{ json: { __skipped: true, campaign, reason: 'no candidate contacts to verify (contact discovery found nothing)' } }];\n}\nreturn cs.map(c => ({ json: { campaign, contact: c } }));\n"
+   },
+   "id": "0841af1d-d4a1-431c-9597-3e26427640f3",
+   "name": "Prep (itemize)",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    220,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "rules": {
+     "values": [
+      {
+       "renameOutput": true,
+       "outputKey": "yes",
+       "conditions": {
+        "options": {
+         "caseSensitive": true,
+         "leftValue": "",
+         "typeValidation": "loose"
+        },
+        "conditions": [
+         {
+          "id": "305de208-9100-4a29-a5b8-5f42567dbf53",
+          "leftValue": "={{ $json.__skipped === true ? 'yes' : 'no' }}",
+          "rightValue": "yes",
+          "operator": {
+           "type": "string",
+           "operation": "equals"
+          }
+         }
+        ],
+        "combinator": "and"
+       }
+      }
+     ]
+    },
+    "options": {
+     "fallbackOutput": "extra"
+    }
+   },
+   "id": "b8d73b6b-59cf-42d7-919c-348f0ca63e52",
+   "name": "Has Contacts?",
+   "type": "n8n-nodes-base.switch",
+   "typeVersion": 3,
+   "position": [
+    440,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "batchSize": 1,
+    "options": {}
+   },
+   "id": "f0401806-7989-4369-a568-03aaf070b392",
+   "name": "Loop",
+   "type": "n8n-nodes-base.splitInBatches",
+   "typeVersion": 3,
+   "position": [
+    660,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "source": "database",
+    "workflowId": {
+     "__rl": true,
+     "mode": "id",
+     "value": "__WFID:TOOLS_SEARCH__"
+    },
+    "mode": "once",
+    "workflowInputs": {
+     "mappingMode": "defineBelow",
+     "value": null
+    },
+    "options": {}
+   },
+   "id": "76195aad-698a-4af7-8a7d-799c17d98f1c",
+   "name": "Search Person",
+   "type": "n8n-nodes-base.executeWorkflow",
+   "typeVersion": 1.3,
+   "position": [
+    660,
+    120
+   ],
+   "onError": "continueErrorOutput"
+  },
+  {
+   "parameters": {
+    "amount": 1.5,
+    "unit": "seconds"
+   },
+   "id": "2bb33d53-2f21-4c26-8acf-7eab98f9c960",
+   "name": "Throttle",
+   "type": "n8n-nodes-base.wait",
+   "typeVersion": 1.1,
+   "position": [
+    880,
+    120
+   ]
+  },
+  {
+   "parameters": {
+    "jsCode": "\nconst it = $('Loop').first().json;\nconst c = it.contact;\nconst s = safeNode('Search Person');\nconst results = (s && Array.isArray(s.json.results)) ? s.json.results.slice(0, 12) : [];\nconst context = [\n  '## CANDIDATE CONTACT',\n  'Name: ' + c.name, 'Role (claimed): ' + (c.role || '?'), 'Seniority: ' + (c.seniority || '?'), 'Company: ' + (c.account_name || '?'),\n  'Source URL for claim: ' + (c.source_url || 'unknown'), 'Discovery note: ' + (c.why || ''),\n  '', '## LIVE SEARCH RESULTS',\n  results.map(r => '- ' + r.title + ' :: ' + r.url + ' :: ' + (r.published || '') + ' :: ' + (r.snippet || '').slice(0, 300)).join('\\n') || '(none)'\n].join('\\n');\nreturn [{ json: { system: \"You are the Contact Verification Agent in a multi-agent BDR system for FlytBase.\\nDetermine whether the candidate contact is (a) a real person, (b) currently at the company, (c) in a role matching the target personas (Head of Operations / VP HSE / Site Director / Operations Director / Safety Director etc.).\\nRespond with STRICT JSON only:\\n{\\\"is_real\\\":bool,\\\"current_at_company\\\":bool,\\\"current_role\\\":str|null,\\\"role_matches_persona\\\":bool,\\\"confidence\\\":number,\\\"summary\\\":str,\\\"evidence\\\":[{\\\"claim\\\":str,\\\"source\\\":str,\\\"url\\\":str|null,\\\"published\\\":str|null,\\\"extract\\\":str,\\\"confidence\\\":number}]}\\nRules: base strictly on the provided search results/news. If the only evidence is old (>3 years) or ambiguous, set current_at_company=false and explain in summary. Never confirm a person without evidence. summary = 1-2 sentences a human BDR can act on.\", prompt: context, temperature: 0.1 } }];\n"
+   },
+   "id": "cd75ed86-ce59-432e-85b4-544c8ddb01a1",
+   "name": "Build Context",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    1100,
+    120
+   ]
+  },
+  {
+   "parameters": {
+    "source": "database",
+    "workflowId": {
+     "__rl": true,
+     "mode": "id",
+     "value": "__WFID:TOOLS_LLM__"
+    },
+    "mode": "once",
+    "workflowInputs": {
+     "mappingMode": "defineBelow",
+     "value": null
+    },
+    "options": {}
+   },
+   "id": "23f1feb5-164e-4a93-abee-904ffa8d8323",
+   "name": "Call LLM",
+   "type": "n8n-nodes-base.executeWorkflow",
+   "typeVersion": 1.3,
+   "position": [
+    1320,
+    120
+   ],
+   "onError": "continueErrorOutput"
+  },
+  {
+   "parameters": {
+    "jsCode": "\n// ===== shared helpers (BDR agent) =====\nconst FA = 'http://127.0.0.1:8000';\nasync function ingest(campaign_id, type, payload, retries = 3) {\n  for (let i = 0; i < retries; i++) {\n    try {\n      await this.helpers.httpRequest({ method: 'POST', url: FA + '/api/ingest',\n        body: JSON.stringify({ campaign_id, type, payload }),\n        headers: { 'Content-Type': 'application/json' }, timeout: 15000 });\n      return { ok: true };\n    } catch (e) {\n      if (i === retries - 1) return { ok: false, error: String((e && e.message) || e) };\n      await new Promise(r => setTimeout(r, 1500));\n    }\n  }\n}\nasync function faGet(path, timeout = 30000) {\n  const resp = await this.helpers.httpRequest({ method: 'GET', url: FA + path, timeout });\n  if (typeof resp === 'string') { try { return JSON.parse(resp); } catch (e) { return resp; } }\n  return resp;\n}\nfunction parseJsonLoose(text) {\n  if (!text) return null;\n  let t = String(text).trim();\n  t = t.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();\n  const s = t.indexOf('{'); const e = t.lastIndexOf('}');\n  if (s === -1 || e === -1 || e <= s) return null;\n  try { return JSON.parse(t.slice(s, e + 1)); } catch (err) { return null; }\n}\nfunction htmlToText(html) {\n  if (!html) return '';\n  let h = String(html);\n  h = h.replace(/<script[^>]*>[\\s\\S]*?<\\/script>/gi, ' ');\n  h = h.replace(/<style[^>]*>[\\s\\S]*?<\\/style>/gi, ' ');\n  h = h.replace(/<nav[^>]*>[\\s\\S]*?<\\/nav>/gi, ' ');\n  h = h.replace(/<footer[^>]*>[\\s\\S]*?<\\/footer>/gi, ' ');\n  h = h.replace(/<(br|\\/p|\\/div|\\/h[1-6]|\\/li|\\/tr)[^>]*>/gi, '\\n');\n  h = h.replace(/<[^>]+>/g, ' ');\n  h = h.replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\");\n  h = h.replace(/[ \\t]+/g, ' ');\n  h = h.replace(/\\n\\s*\\n+/g, '\\n');\n  return h.trim();\n}\nfunction parseRss(xml) {\n  const out = [];\n  if (!xml) return out;\n  const items = String(xml).match(/<item>[\\s\\S]*?<\\/item>/g) || [];\n  const grab = (block, tag) => {\n    const m = block.match(new RegExp('<' + tag + '[^>]*>([\\\\s\\\\S]*?)</' + tag + '>', 'i'));\n    return m ? m[1].replace(/<!\\[CDATA\\[|\\]\\]>/g, '').trim() : '';\n  };\n  for (const it of items.slice(0, 12)) {\n    const title = grab(it, 'title').replace(/&amp;/g, '&').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\");\n    const link = grab(it, 'link');\n    const pub = grab(it, 'pubDate');\n    let desc = grab(it, 'description').replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\").replace(/\\s+/g, ' ').trim();\n    if (title && link) out.push({ title, url: link, snippet: desc.slice(0, 500), published: pub || null, source: 'Google News' });\n  }\n  return out;\n}\nfunction safeNode(name) { try { const h = $(name); const n = (h && h.first) ? h.first() : h; if (n && n.json !== undefined) return n; } catch (e) {} return null; }\nfunction outText(name) { const n = safeNode(name); if (!n) return ''; const j = n.json; if (typeof j === 'string') return j; if (j && typeof j.data === 'string') return j.data; return (j && j.json && typeof j.json.data === 'string') ? j.json.data : ''; }\n\nconst it = $('Loop').first().json;\nconst c = it.contact;\nconst out = $json;\nconst v = (out && out.ok) ? parseJsonLoose(out.content) : null;\nlet verified = false;\nlet reason = v ? (v.summary || '') : 'verification failed: ' + ((out && out.error) || 'llm error');\nif (v) verified = !!v.is_real && !!v.current_at_company && !!v.role_matches_persona;\nawait ingest(it.campaign.id, 'contact_update', {\n  match: { account_name: c.account_name, name: c.name, status: 'candidate' },\n  patch: {\n    status: verified ? 'verified' : 'rejected',\n    verified: !!verified,\n    current_role: (v && v.current_role) || c.role,\n    verification_summary: String(reason).slice(0, 400),\n    confidence: (v && typeof v.confidence === 'number') ? v.confidence : 0,\n    evidence: (v && Array.isArray(v.evidence)) ? v.evidence : []\n  }\n});\nreturn [{ json: { contact: c.name, verified } }];\n"
+   },
+   "id": "34666352-31dc-47d3-b5be-3a94197b67fd",
+   "name": "Persist",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    1540,
+    120
+   ]
+  },
+  {
+   "parameters": {
+    "jsCode": "\n// ===== shared helpers (BDR agent) =====\nconst FA = 'http://127.0.0.1:8000';\nasync function ingest(campaign_id, type, payload, retries = 3) {\n  for (let i = 0; i < retries; i++) {\n    try {\n      await this.helpers.httpRequest({ method: 'POST', url: FA + '/api/ingest',\n        body: JSON.stringify({ campaign_id, type, payload }),\n        headers: { 'Content-Type': 'application/json' }, timeout: 15000 });\n      return { ok: true };\n    } catch (e) {\n      if (i === retries - 1) return { ok: false, error: String((e && e.message) || e) };\n      await new Promise(r => setTimeout(r, 1500));\n    }\n  }\n}\nasync function faGet(path, timeout = 30000) {\n  const resp = await this.helpers.httpRequest({ method: 'GET', url: FA + path, timeout });\n  if (typeof resp === 'string') { try { return JSON.parse(resp); } catch (e) { return resp; } }\n  return resp;\n}\nfunction parseJsonLoose(text) {\n  if (!text) return null;\n  let t = String(text).trim();\n  t = t.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();\n  const s = t.indexOf('{'); const e = t.lastIndexOf('}');\n  if (s === -1 || e === -1 || e <= s) return null;\n  try { return JSON.parse(t.slice(s, e + 1)); } catch (err) { return null; }\n}\nfunction htmlToText(html) {\n  if (!html) return '';\n  let h = String(html);\n  h = h.replace(/<script[^>]*>[\\s\\S]*?<\\/script>/gi, ' ');\n  h = h.replace(/<style[^>]*>[\\s\\S]*?<\\/style>/gi, ' ');\n  h = h.replace(/<nav[^>]*>[\\s\\S]*?<\\/nav>/gi, ' ');\n  h = h.replace(/<footer[^>]*>[\\s\\S]*?<\\/footer>/gi, ' ');\n  h = h.replace(/<(br|\\/p|\\/div|\\/h[1-6]|\\/li|\\/tr)[^>]*>/gi, '\\n');\n  h = h.replace(/<[^>]+>/g, ' ');\n  h = h.replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\");\n  h = h.replace(/[ \\t]+/g, ' ');\n  h = h.replace(/\\n\\s*\\n+/g, '\\n');\n  return h.trim();\n}\nfunction parseRss(xml) {\n  const out = [];\n  if (!xml) return out;\n  const items = String(xml).match(/<item>[\\s\\S]*?<\\/item>/g) || [];\n  const grab = (block, tag) => {\n    const m = block.match(new RegExp('<' + tag + '[^>]*>([\\\\s\\\\S]*?)</' + tag + '>', 'i'));\n    return m ? m[1].replace(/<!\\[CDATA\\[|\\]\\]>/g, '').trim() : '';\n  };\n  for (const it of items.slice(0, 12)) {\n    const title = grab(it, 'title').replace(/&amp;/g, '&').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\");\n    const link = grab(it, 'link');\n    const pub = grab(it, 'pubDate');\n    let desc = grab(it, 'description').replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\").replace(/\\s+/g, ' ').trim();\n    if (title && link) out.push({ title, url: link, snippet: desc.slice(0, 500), published: pub || null, source: 'Google News' });\n  }\n  return out;\n}\nfunction safeNode(name) { try { const h = $(name); const n = (h && h.first) ? h.first() : h; if (n && n.json !== undefined) return n; } catch (e) {} return null; }\nfunction outText(name) { const n = safeNode(name); if (!n) return ''; const j = n.json; if (typeof j === 'string') return j; if (j && typeof j.data === 'string') return j.data; return (j && j.json && typeof j.json.data === 'string') ? j.json.data : ''; }\n\nconst p0 = $('Prep (itemize)').first().json;\nconst skipped = p0.__skipped === true;\nconst campaign = p0.campaign;\nlet contacts = [];\ntry { contacts = await faGet('/api/contacts?campaign_id=' + encodeURIComponent(campaign.id) + '&status=verified'); } catch (e) {}\nreturn [{ json: { stage: 'contact_verification', status: skipped ? 'skipped' : 'ok', reason: skipped ? p0.reason : null, verified_contacts: Array.isArray(contacts) ? contacts : [], counts: { verified: Array.isArray(contacts) ? contacts.length : 0 } } }];\n"
+   },
+   "id": "7b3ee4d5-c022-4795-b270-7b928d0f0840",
+   "name": "Return",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    660,
+    -220
+   ]
+  }
+ ],
+ "connections": {
+  "Trigger": {
+   "main": [
+    [
+     {
+      "node": "Prep (itemize)",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Prep (itemize)": {
+   "main": [
+    [
+     {
+      "node": "Has Contacts?",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Has Contacts?": {
+   "main": [
+    [
+     {
+      "node": "Return",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Loop",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Loop": {
+   "main": [
+    [
+     {
+      "node": "Return",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Search Person",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Search Person": {
+   "main": [
+    [
+     {
+      "node": "Throttle",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Throttle",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Throttle": {
+   "main": [
+    [
+     {
+      "node": "Build Context",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Build Context": {
+   "main": [
+    [
+     {
+      "node": "Call LLM",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Call LLM": {
+   "main": [
+    [
+     {
+      "node": "Persist",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Persist",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Persist": {
+   "main": [
+    [
+     {
+      "node": "Loop",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  }
+ },
+ "settings": {
+  "executionOrder": "v1"
+ },
+ "description": "Agent 5: verifies contacts are real, current, role-matched. In: {campaign, contacts[]}. Out: {stage, status, verified_contacts[], counts}.",
+ "active": false
+}

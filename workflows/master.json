@@ -1,0 +1,1259 @@
+{
+ "name": "BDR :: MASTER Orchestrator",
+ "nodes": [
+  {
+   "parameters": {
+    "httpMethod": "POST",
+    "path": "master",
+    "responseMode": "onReceived",
+    "options": {}
+   },
+   "id": "4d594c16-3861-4515-ac45-6996785342cd",
+   "name": "Webhook",
+   "type": "n8n-nodes-base.webhook",
+   "typeVersion": 2,
+   "position": [
+    0,
+    0
+   ],
+   "webhookId": "bdr-master-1"
+  },
+  {
+   "parameters": {
+    "jsCode": "\nconst body = ($json && ($json.body || $json)) || {};\nconst campaign = {\n  id: 'run_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),\n  vertical: body.vertical || 'Large-scale lithium, copper, and iron ore mining operations in Latin America',\n  geography: body.geography || 'Latin America',\n  reference_account: body.reference_account || 'Sociedad Quimica y Minera de Chile (SQM)',\n  target_roles: Array.isArray(body.target_roles) && body.target_roles.length ? body.target_roles : ['Head of Operations', 'VP of HSE', 'Site Directors'],\n  solution: body.solution || 'Autonomous drone inspection replacing contracted crews at hazardous, 24/7 extraction sites',\n  max_accounts: (body.max_accounts ? Number(body.max_accounts) : 8),\n  sender_name: body.sender_name || 'Alex from FlytBase',\n  created_at: new Date().toISOString(),\n  status: 'running'\n};\nreturn [{ json: { campaign } }];\n"
+   },
+   "id": "38f0ce7a-484e-4076-92d7-29938a804c2a",
+   "name": "Init Campaign",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    220,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "jsCode": "\n// ===== shared helpers (BDR agent) =====\nconst FA = 'http://127.0.0.1:8000';\nasync function ingest(campaign_id, type, payload, retries = 3) {\n  for (let i = 0; i < retries; i++) {\n    try {\n      await this.helpers.httpRequest({ method: 'POST', url: FA + '/api/ingest',\n        body: JSON.stringify({ campaign_id, type, payload }),\n        headers: { 'Content-Type': 'application/json' }, timeout: 15000 });\n      return { ok: true };\n    } catch (e) {\n      if (i === retries - 1) return { ok: false, error: String((e && e.message) || e) };\n      await new Promise(r => setTimeout(r, 1500));\n    }\n  }\n}\nasync function faGet(path, timeout = 30000) {\n  const resp = await this.helpers.httpRequest({ method: 'GET', url: FA + path, timeout });\n  if (typeof resp === 'string') { try { return JSON.parse(resp); } catch (e) { return resp; } }\n  return resp;\n}\nfunction parseJsonLoose(text) {\n  if (!text) return null;\n  let t = String(text).trim();\n  t = t.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();\n  const s = t.indexOf('{'); const e = t.lastIndexOf('}');\n  if (s === -1 || e === -1 || e <= s) return null;\n  try { return JSON.parse(t.slice(s, e + 1)); } catch (err) { return null; }\n}\nfunction htmlToText(html) {\n  if (!html) return '';\n  let h = String(html);\n  h = h.replace(/<script[^>]*>[\\s\\S]*?<\\/script>/gi, ' ');\n  h = h.replace(/<style[^>]*>[\\s\\S]*?<\\/style>/gi, ' ');\n  h = h.replace(/<nav[^>]*>[\\s\\S]*?<\\/nav>/gi, ' ');\n  h = h.replace(/<footer[^>]*>[\\s\\S]*?<\\/footer>/gi, ' ');\n  h = h.replace(/<(br|\\/p|\\/div|\\/h[1-6]|\\/li|\\/tr)[^>]*>/gi, '\\n');\n  h = h.replace(/<[^>]+>/g, ' ');\n  h = h.replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\");\n  h = h.replace(/[ \\t]+/g, ' ');\n  h = h.replace(/\\n\\s*\\n+/g, '\\n');\n  return h.trim();\n}\nfunction parseRss(xml) {\n  const out = [];\n  if (!xml) return out;\n  const items = String(xml).match(/<item>[\\s\\S]*?<\\/item>/g) || [];\n  const grab = (block, tag) => {\n    const m = block.match(new RegExp('<' + tag + '[^>]*>([\\\\s\\\\S]*?)</' + tag + '>', 'i'));\n    return m ? m[1].replace(/<!\\[CDATA\\[|\\]\\]>/g, '').trim() : '';\n  };\n  for (const it of items.slice(0, 12)) {\n    const title = grab(it, 'title').replace(/&amp;/g, '&').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\");\n    const link = grab(it, 'link');\n    const pub = grab(it, 'pubDate');\n    let desc = grab(it, 'description').replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\").replace(/\\s+/g, ' ').trim();\n    if (title && link) out.push({ title, url: link, snippet: desc.slice(0, 500), published: pub || null, source: 'Google News' });\n  }\n  return out;\n}\nfunction safeNode(name) { try { const h = $(name); const n = (h && h.first) ? h.first() : h; if (n && n.json !== undefined) return n; } catch (e) {} return null; }\nfunction outText(name) { const n = safeNode(name); if (!n) return ''; const j = n.json; if (typeof j === 'string') return j; if (j && typeof j.data === 'string') return j.data; return (j && j.json && typeof j.json.data === 'string') ? j.json.data : ''; }\n\nconst prev = $json;\nconst campaign = prev.campaign;\nawait ingest(campaign.id, 'campaign', { ...campaign, status: 'running' });\nlet kb = {};\ntry { kb = await faGet('/api/kb'); } catch (e) { kb = {}; }\nawait ingest(campaign.id, 'agent_run', { agent: 'master', label: 'Pipeline Start', status: 'running', started_at: new Date().toISOString() });\nreturn [{ json: { campaign, kb: kb || {} } }];\n"
+   },
+   "id": "2a31227c-5c3d-45b9-90c6-067ea57e6998",
+   "name": "Start Run + Load KB",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    440,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "jsCode": "\nconst p = $json;\nreturn [{ json: { campaign: p.campaign, kb: p.kb || {}, icp: null, candidates: [], qualified_accounts: [], contacts: [], verified_contacts: [], research: [], emails: [] } }];\n"
+   },
+   "id": "5935073e-98d6-480a-b754-d8dc212787e7",
+   "name": "A0 Carry",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    660,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "jsCode": "\n// ===== shared helpers (BDR agent) =====\nconst FA = 'http://127.0.0.1:8000';\nasync function ingest(campaign_id, type, payload, retries = 3) {\n  for (let i = 0; i < retries; i++) {\n    try {\n      await this.helpers.httpRequest({ method: 'POST', url: FA + '/api/ingest',\n        body: JSON.stringify({ campaign_id, type, payload }),\n        headers: { 'Content-Type': 'application/json' }, timeout: 15000 });\n      return { ok: true };\n    } catch (e) {\n      if (i === retries - 1) return { ok: false, error: String((e && e.message) || e) };\n      await new Promise(r => setTimeout(r, 1500));\n    }\n  }\n}\nasync function faGet(path, timeout = 30000) {\n  const resp = await this.helpers.httpRequest({ method: 'GET', url: FA + path, timeout });\n  if (typeof resp === 'string') { try { return JSON.parse(resp); } catch (e) { return resp; } }\n  return resp;\n}\nfunction parseJsonLoose(text) {\n  if (!text) return null;\n  let t = String(text).trim();\n  t = t.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();\n  const s = t.indexOf('{'); const e = t.lastIndexOf('}');\n  if (s === -1 || e === -1 || e <= s) return null;\n  try { return JSON.parse(t.slice(s, e + 1)); } catch (err) { return null; }\n}\nfunction htmlToText(html) {\n  if (!html) return '';\n  let h = String(html);\n  h = h.replace(/<script[^>]*>[\\s\\S]*?<\\/script>/gi, ' ');\n  h = h.replace(/<style[^>]*>[\\s\\S]*?<\\/style>/gi, ' ');\n  h = h.replace(/<nav[^>]*>[\\s\\S]*?<\\/nav>/gi, ' ');\n  h = h.replace(/<footer[^>]*>[\\s\\S]*?<\\/footer>/gi, ' ');\n  h = h.replace(/<(br|\\/p|\\/div|\\/h[1-6]|\\/li|\\/tr)[^>]*>/gi, '\\n');\n  h = h.replace(/<[^>]+>/g, ' ');\n  h = h.replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\");\n  h = h.replace(/[ \\t]+/g, ' ');\n  h = h.replace(/\\n\\s*\\n+/g, '\\n');\n  return h.trim();\n}\nfunction parseRss(xml) {\n  const out = [];\n  if (!xml) return out;\n  const items = String(xml).match(/<item>[\\s\\S]*?<\\/item>/g) || [];\n  const grab = (block, tag) => {\n    const m = block.match(new RegExp('<' + tag + '[^>]*>([\\\\s\\\\S]*?)</' + tag + '>', 'i'));\n    return m ? m[1].replace(/<!\\[CDATA\\[|\\]\\]>/g, '').trim() : '';\n  };\n  for (const it of items.slice(0, 12)) {\n    const title = grab(it, 'title').replace(/&amp;/g, '&').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\");\n    const link = grab(it, 'link');\n    const pub = grab(it, 'pubDate');\n    let desc = grab(it, 'description').replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\").replace(/\\s+/g, ' ').trim();\n    if (title && link) out.push({ title, url: link, snippet: desc.slice(0, 500), published: pub || null, source: 'Google News' });\n  }\n  return out;\n}\nfunction safeNode(name) { try { const h = $(name); const n = (h && h.first) ? h.first() : h; if (n && n.json !== undefined) return n; } catch (e) {} return null; }\nfunction outText(name) { const n = safeNode(name); if (!n) return ''; const j = n.json; if (typeof j === 'string') return j; if (j && typeof j.data === 'string') return j.data; return (j && j.json && typeof j.json.data === 'string') ? j.json.data : ''; }\n\nconst p = $json;\nawait ingest(p.campaign.id, 'agent_run', { agent: 'icp_agent', label: 'ICP Intelligence (SQM fingerprint)', status: 'running', started_at: new Date().toISOString() });\nreturn [{ json: p }];\n"
+   },
+   "id": "9b96ae06-fcf2-4ee3-a8ba-7e9d2692f590",
+   "name": "ICP Intelligence (SQM fingerprint) start",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    880,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "jsCode": "const p = $json;\nreturn [{ json: { campaign: p.campaign } }];"
+   },
+   "id": "420d3226-a234-4d50-865a-9b5846b4101b",
+   "name": "A1 Input",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    1080,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "source": "database",
+    "workflowId": {
+     "__rl": true,
+     "mode": "id",
+     "value": "__WFID:A1_ICP__"
+    },
+    "mode": "once",
+    "workflowInputs": {
+     "mappingMode": "defineBelow",
+     "value": null
+    },
+    "options": {}
+   },
+   "id": "343d8bb5-5c1a-4f8c-8337-e802e28d0b42",
+   "name": "A1 ICP Agent",
+   "type": "n8n-nodes-base.executeWorkflow",
+   "typeVersion": 1.3,
+   "position": [
+    1280,
+    0
+   ],
+   "onError": "continueErrorOutput"
+  },
+  {
+   "parameters": {
+    "jsCode": "\n// ===== shared helpers (BDR agent) =====\nconst FA = 'http://127.0.0.1:8000';\nasync function ingest(campaign_id, type, payload, retries = 3) {\n  for (let i = 0; i < retries; i++) {\n    try {\n      await this.helpers.httpRequest({ method: 'POST', url: FA + '/api/ingest',\n        body: JSON.stringify({ campaign_id, type, payload }),\n        headers: { 'Content-Type': 'application/json' }, timeout: 15000 });\n      return { ok: true };\n    } catch (e) {\n      if (i === retries - 1) return { ok: false, error: String((e && e.message) || e) };\n      await new Promise(r => setTimeout(r, 1500));\n    }\n  }\n}\nasync function faGet(path, timeout = 30000) {\n  const resp = await this.helpers.httpRequest({ method: 'GET', url: FA + path, timeout });\n  if (typeof resp === 'string') { try { return JSON.parse(resp); } catch (e) { return resp; } }\n  return resp;\n}\nfunction parseJsonLoose(text) {\n  if (!text) return null;\n  let t = String(text).trim();\n  t = t.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();\n  const s = t.indexOf('{'); const e = t.lastIndexOf('}');\n  if (s === -1 || e === -1 || e <= s) return null;\n  try { return JSON.parse(t.slice(s, e + 1)); } catch (err) { return null; }\n}\nfunction htmlToText(html) {\n  if (!html) return '';\n  let h = String(html);\n  h = h.replace(/<script[^>]*>[\\s\\S]*?<\\/script>/gi, ' ');\n  h = h.replace(/<style[^>]*>[\\s\\S]*?<\\/style>/gi, ' ');\n  h = h.replace(/<nav[^>]*>[\\s\\S]*?<\\/nav>/gi, ' ');\n  h = h.replace(/<footer[^>]*>[\\s\\S]*?<\\/footer>/gi, ' ');\n  h = h.replace(/<(br|\\/p|\\/div|\\/h[1-6]|\\/li|\\/tr)[^>]*>/gi, '\\n');\n  h = h.replace(/<[^>]+>/g, ' ');\n  h = h.replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\");\n  h = h.replace(/[ \\t]+/g, ' ');\n  h = h.replace(/\\n\\s*\\n+/g, '\\n');\n  return h.trim();\n}\nfunction parseRss(xml) {\n  const out = [];\n  if (!xml) return out;\n  const items = String(xml).match(/<item>[\\s\\S]*?<\\/item>/g) || [];\n  const grab = (block, tag) => {\n    const m = block.match(new RegExp('<' + tag + '[^>]*>([\\\\s\\\\S]*?)</' + tag + '>', 'i'));\n    return m ? m[1].replace(/<!\\[CDATA\\[|\\]\\]>/g, '').trim() : '';\n  };\n  for (const it of items.slice(0, 12)) {\n    const title = grab(it, 'title').replace(/&amp;/g, '&').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\");\n    const link = grab(it, 'link');\n    const pub = grab(it, 'pubDate');\n    let desc = grab(it, 'description').replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\").replace(/\\s+/g, ' ').trim();\n    if (title && link) out.push({ title, url: link, snippet: desc.slice(0, 500), published: pub || null, source: 'Google News' });\n  }\n  return out;\n}\nfunction safeNode(name) { try { const h = $(name); const n = (h && h.first) ? h.first() : h; if (n && n.json !== undefined) return n; } catch (e) {} return null; }\nfunction outText(name) { const n = safeNode(name); if (!n) return ''; const j = n.json; if (typeof j === 'string') return j; if (j && typeof j.data === 'string') return j.data; return (j && j.json && typeof j.json.data === 'string') ? j.json.data : ''; }\n\nconst sub = $json;\nconst p0 = $('A1 Input').first().json;\nconst failed = !sub || sub.status === 'failed' || !sub.stage;\nawait ingest(p0.campaign.id, 'agent_run_end', {\n  agent: 'icp_agent',\n  status: failed ? 'failed' : 'done',\n  finished_at: new Date().toISOString(),\n  detail: JSON.stringify((sub && sub.counts) || (sub && sub.status) || (sub && sub.reason) || null).slice(0, 400),\n  error: failed ? String((sub && (sub.error || sub.message || sub.reason)) || 'sub-workflow execution error (see n8n executions)').slice(0, 400) : null\n});\nreturn [{ json: sub || { stage: 'icp_agent', status: 'failed', error: 'sub-workflow produced no output' } }];\n"
+   },
+   "id": "f7de8aec-c49e-44dd-952e-79b064e4e550",
+   "name": "ICP Intelligence (SQM fingerprint) end",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    1480,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "jsCode": "const sub = $json;\nconst ctx = $('A1 Input').first().json;\nconst r = { campaign: ctx.campaign, kb: ctx.kb || {} };\nr.icp = ctx.icp || null; r.candidates = ctx.candidates || []; r.qualified_accounts = ctx.qualified_accounts || []; r.contacts = ctx.contacts || []; r.verified_contacts = ctx.verified_contacts || []; r.research = ctx.research || []; r.emails = ctx.emails || [];\nr.icp = sub.icp || ctx.icp || null;\nreturn [{ json: r }];"
+   },
+   "id": "db722e3c-8298-4a77-8dea-6bdec6067a9e",
+   "name": "A1 Carry",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    1680,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "jsCode": "\n// ===== shared helpers (BDR agent) =====\nconst FA = 'http://127.0.0.1:8000';\nasync function ingest(campaign_id, type, payload, retries = 3) {\n  for (let i = 0; i < retries; i++) {\n    try {\n      await this.helpers.httpRequest({ method: 'POST', url: FA + '/api/ingest',\n        body: JSON.stringify({ campaign_id, type, payload }),\n        headers: { 'Content-Type': 'application/json' }, timeout: 15000 });\n      return { ok: true };\n    } catch (e) {\n      if (i === retries - 1) return { ok: false, error: String((e && e.message) || e) };\n      await new Promise(r => setTimeout(r, 1500));\n    }\n  }\n}\nasync function faGet(path, timeout = 30000) {\n  const resp = await this.helpers.httpRequest({ method: 'GET', url: FA + path, timeout });\n  if (typeof resp === 'string') { try { return JSON.parse(resp); } catch (e) { return resp; } }\n  return resp;\n}\nfunction parseJsonLoose(text) {\n  if (!text) return null;\n  let t = String(text).trim();\n  t = t.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();\n  const s = t.indexOf('{'); const e = t.lastIndexOf('}');\n  if (s === -1 || e === -1 || e <= s) return null;\n  try { return JSON.parse(t.slice(s, e + 1)); } catch (err) { return null; }\n}\nfunction htmlToText(html) {\n  if (!html) return '';\n  let h = String(html);\n  h = h.replace(/<script[^>]*>[\\s\\S]*?<\\/script>/gi, ' ');\n  h = h.replace(/<style[^>]*>[\\s\\S]*?<\\/style>/gi, ' ');\n  h = h.replace(/<nav[^>]*>[\\s\\S]*?<\\/nav>/gi, ' ');\n  h = h.replace(/<footer[^>]*>[\\s\\S]*?<\\/footer>/gi, ' ');\n  h = h.replace(/<(br|\\/p|\\/div|\\/h[1-6]|\\/li|\\/tr)[^>]*>/gi, '\\n');\n  h = h.replace(/<[^>]+>/g, ' ');\n  h = h.replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\");\n  h = h.replace(/[ \\t]+/g, ' ');\n  h = h.replace(/\\n\\s*\\n+/g, '\\n');\n  return h.trim();\n}\nfunction parseRss(xml) {\n  const out = [];\n  if (!xml) return out;\n  const items = String(xml).match(/<item>[\\s\\S]*?<\\/item>/g) || [];\n  const grab = (block, tag) => {\n    const m = block.match(new RegExp('<' + tag + '[^>]*>([\\\\s\\\\S]*?)</' + tag + '>', 'i'));\n    return m ? m[1].replace(/<!\\[CDATA\\[|\\]\\]>/g, '').trim() : '';\n  };\n  for (const it of items.slice(0, 12)) {\n    const title = grab(it, 'title').replace(/&amp;/g, '&').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\");\n    const link = grab(it, 'link');\n    const pub = grab(it, 'pubDate');\n    let desc = grab(it, 'description').replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\").replace(/\\s+/g, ' ').trim();\n    if (title && link) out.push({ title, url: link, snippet: desc.slice(0, 500), published: pub || null, source: 'Google News' });\n  }\n  return out;\n}\nfunction safeNode(name) { try { const h = $(name); const n = (h && h.first) ? h.first() : h; if (n && n.json !== undefined) return n; } catch (e) {} return null; }\nfunction outText(name) { const n = safeNode(name); if (!n) return ''; const j = n.json; if (typeof j === 'string') return j; if (j && typeof j.data === 'string') return j.data; return (j && j.json && typeof j.json.data === 'string') ? j.json.data : ''; }\n\nconst p = $json;\nawait ingest(p.campaign.id, 'agent_run', { agent: 'account_discovery', label: 'Account Discovery (seed + live search)', status: 'running', started_at: new Date().toISOString() });\nreturn [{ json: p }];\n"
+   },
+   "id": "f05f44b7-b48d-465f-815b-00b0d251493e",
+   "name": "Account Discovery (seed + live search) start",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    1880,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "jsCode": "const p = $json;\nreturn [{ json: { campaign: p.campaign, icp: p.icp } }];"
+   },
+   "id": "b37aaf98-2149-4015-b804-e854d546aa5f",
+   "name": "A2 Input",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    2080,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "source": "database",
+    "workflowId": {
+     "__rl": true,
+     "mode": "id",
+     "value": "__WFID:A2_DISCOVERY__"
+    },
+    "mode": "once",
+    "workflowInputs": {
+     "mappingMode": "defineBelow",
+     "value": null
+    },
+    "options": {}
+   },
+   "id": "2a975e2a-4bc9-4642-bece-af5a1e82687a",
+   "name": "A2 Account Discovery",
+   "type": "n8n-nodes-base.executeWorkflow",
+   "typeVersion": 1.3,
+   "position": [
+    2280,
+    0
+   ],
+   "onError": "continueErrorOutput"
+  },
+  {
+   "parameters": {
+    "jsCode": "\n// ===== shared helpers (BDR agent) =====\nconst FA = 'http://127.0.0.1:8000';\nasync function ingest(campaign_id, type, payload, retries = 3) {\n  for (let i = 0; i < retries; i++) {\n    try {\n      await this.helpers.httpRequest({ method: 'POST', url: FA + '/api/ingest',\n        body: JSON.stringify({ campaign_id, type, payload }),\n        headers: { 'Content-Type': 'application/json' }, timeout: 15000 });\n      return { ok: true };\n    } catch (e) {\n      if (i === retries - 1) return { ok: false, error: String((e && e.message) || e) };\n      await new Promise(r => setTimeout(r, 1500));\n    }\n  }\n}\nasync function faGet(path, timeout = 30000) {\n  const resp = await this.helpers.httpRequest({ method: 'GET', url: FA + path, timeout });\n  if (typeof resp === 'string') { try { return JSON.parse(resp); } catch (e) { return resp; } }\n  return resp;\n}\nfunction parseJsonLoose(text) {\n  if (!text) return null;\n  let t = String(text).trim();\n  t = t.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();\n  const s = t.indexOf('{'); const e = t.lastIndexOf('}');\n  if (s === -1 || e === -1 || e <= s) return null;\n  try { return JSON.parse(t.slice(s, e + 1)); } catch (err) { return null; }\n}\nfunction htmlToText(html) {\n  if (!html) return '';\n  let h = String(html);\n  h = h.replace(/<script[^>]*>[\\s\\S]*?<\\/script>/gi, ' ');\n  h = h.replace(/<style[^>]*>[\\s\\S]*?<\\/style>/gi, ' ');\n  h = h.replace(/<nav[^>]*>[\\s\\S]*?<\\/nav>/gi, ' ');\n  h = h.replace(/<footer[^>]*>[\\s\\S]*?<\\/footer>/gi, ' ');\n  h = h.replace(/<(br|\\/p|\\/div|\\/h[1-6]|\\/li|\\/tr)[^>]*>/gi, '\\n');\n  h = h.replace(/<[^>]+>/g, ' ');\n  h = h.replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\");\n  h = h.replace(/[ \\t]+/g, ' ');\n  h = h.replace(/\\n\\s*\\n+/g, '\\n');\n  return h.trim();\n}\nfunction parseRss(xml) {\n  const out = [];\n  if (!xml) return out;\n  const items = String(xml).match(/<item>[\\s\\S]*?<\\/item>/g) || [];\n  const grab = (block, tag) => {\n    const m = block.match(new RegExp('<' + tag + '[^>]*>([\\\\s\\\\S]*?)</' + tag + '>', 'i'));\n    return m ? m[1].replace(/<!\\[CDATA\\[|\\]\\]>/g, '').trim() : '';\n  };\n  for (const it of items.slice(0, 12)) {\n    const title = grab(it, 'title').replace(/&amp;/g, '&').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\");\n    const link = grab(it, 'link');\n    const pub = grab(it, 'pubDate');\n    let desc = grab(it, 'description').replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\").replace(/\\s+/g, ' ').trim();\n    if (title && link) out.push({ title, url: link, snippet: desc.slice(0, 500), published: pub || null, source: 'Google News' });\n  }\n  return out;\n}\nfunction safeNode(name) { try { const h = $(name); const n = (h && h.first) ? h.first() : h; if (n && n.json !== undefined) return n; } catch (e) {} return null; }\nfunction outText(name) { const n = safeNode(name); if (!n) return ''; const j = n.json; if (typeof j === 'string') return j; if (j && typeof j.data === 'string') return j.data; return (j && j.json && typeof j.json.data === 'string') ? j.json.data : ''; }\n\nconst sub = $json;\nconst p0 = $('A2 Input').first().json;\nconst failed = !sub || sub.status === 'failed' || !sub.stage;\nawait ingest(p0.campaign.id, 'agent_run_end', {\n  agent: 'account_discovery',\n  status: failed ? 'failed' : 'done',\n  finished_at: new Date().toISOString(),\n  detail: JSON.stringify((sub && sub.counts) || (sub && sub.status) || (sub && sub.reason) || null).slice(0, 400),\n  error: failed ? String((sub && (sub.error || sub.message || sub.reason)) || 'sub-workflow execution error (see n8n executions)').slice(0, 400) : null\n});\nreturn [{ json: sub || { stage: 'account_discovery', status: 'failed', error: 'sub-workflow produced no output' } }];\n"
+   },
+   "id": "5d116d30-fc0c-402f-80c7-c32a5eec52d4",
+   "name": "Account Discovery (seed + live search) end",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    2480,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "jsCode": "const sub = $json;\nconst ctx = $('A2 Input').first().json;\nconst r = { campaign: ctx.campaign, kb: ctx.kb || {} };\nr.icp = ctx.icp || null; r.candidates = ctx.candidates || []; r.qualified_accounts = ctx.qualified_accounts || []; r.contacts = ctx.contacts || []; r.verified_contacts = ctx.verified_contacts || []; r.research = ctx.research || []; r.emails = ctx.emails || [];\nr.candidates = (sub.candidates || []).length ? sub.candidates : ctx.candidates;\nreturn [{ json: r }];"
+   },
+   "id": "3e56afa1-4ccb-45f2-888e-9b77141471d0",
+   "name": "A2 Carry",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    2680,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "jsCode": "\n// ===== shared helpers (BDR agent) =====\nconst FA = 'http://127.0.0.1:8000';\nasync function ingest(campaign_id, type, payload, retries = 3) {\n  for (let i = 0; i < retries; i++) {\n    try {\n      await this.helpers.httpRequest({ method: 'POST', url: FA + '/api/ingest',\n        body: JSON.stringify({ campaign_id, type, payload }),\n        headers: { 'Content-Type': 'application/json' }, timeout: 15000 });\n      return { ok: true };\n    } catch (e) {\n      if (i === retries - 1) return { ok: false, error: String((e && e.message) || e) };\n      await new Promise(r => setTimeout(r, 1500));\n    }\n  }\n}\nasync function faGet(path, timeout = 30000) {\n  const resp = await this.helpers.httpRequest({ method: 'GET', url: FA + path, timeout });\n  if (typeof resp === 'string') { try { return JSON.parse(resp); } catch (e) { return resp; } }\n  return resp;\n}\nfunction parseJsonLoose(text) {\n  if (!text) return null;\n  let t = String(text).trim();\n  t = t.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();\n  const s = t.indexOf('{'); const e = t.lastIndexOf('}');\n  if (s === -1 || e === -1 || e <= s) return null;\n  try { return JSON.parse(t.slice(s, e + 1)); } catch (err) { return null; }\n}\nfunction htmlToText(html) {\n  if (!html) return '';\n  let h = String(html);\n  h = h.replace(/<script[^>]*>[\\s\\S]*?<\\/script>/gi, ' ');\n  h = h.replace(/<style[^>]*>[\\s\\S]*?<\\/style>/gi, ' ');\n  h = h.replace(/<nav[^>]*>[\\s\\S]*?<\\/nav>/gi, ' ');\n  h = h.replace(/<footer[^>]*>[\\s\\S]*?<\\/footer>/gi, ' ');\n  h = h.replace(/<(br|\\/p|\\/div|\\/h[1-6]|\\/li|\\/tr)[^>]*>/gi, '\\n');\n  h = h.replace(/<[^>]+>/g, ' ');\n  h = h.replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\");\n  h = h.replace(/[ \\t]+/g, ' ');\n  h = h.replace(/\\n\\s*\\n+/g, '\\n');\n  return h.trim();\n}\nfunction parseRss(xml) {\n  const out = [];\n  if (!xml) return out;\n  const items = String(xml).match(/<item>[\\s\\S]*?<\\/item>/g) || [];\n  const grab = (block, tag) => {\n    const m = block.match(new RegExp('<' + tag + '[^>]*>([\\\\s\\\\S]*?)</' + tag + '>', 'i'));\n    return m ? m[1].replace(/<!\\[CDATA\\[|\\]\\]>/g, '').trim() : '';\n  };\n  for (const it of items.slice(0, 12)) {\n    const title = grab(it, 'title').replace(/&amp;/g, '&').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\");\n    const link = grab(it, 'link');\n    const pub = grab(it, 'pubDate');\n    let desc = grab(it, 'description').replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\").replace(/\\s+/g, ' ').trim();\n    if (title && link) out.push({ title, url: link, snippet: desc.slice(0, 500), published: pub || null, source: 'Google News' });\n  }\n  return out;\n}\nfunction safeNode(name) { try { const h = $(name); const n = (h && h.first) ? h.first() : h; if (n && n.json !== undefined) return n; } catch (e) {} return null; }\nfunction outText(name) { const n = safeNode(name); if (!n) return ''; const j = n.json; if (typeof j === 'string') return j; if (j && typeof j.data === 'string') return j.data; return (j && j.json && typeof j.json.data === 'string') ? j.json.data : ''; }\n\nconst p = $json;\nawait ingest(p.campaign.id, 'agent_run', { agent: 'account_verification', label: 'Account Verification (ICP fit + evidence)', status: 'running', started_at: new Date().toISOString() });\nreturn [{ json: p }];\n"
+   },
+   "id": "5b99e1f3-c007-4273-91b6-3716d67fee9a",
+   "name": "Account Verification (ICP fit + evidence) start",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    2880,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "jsCode": "const p = $json;\nreturn [{ json: { campaign: p.campaign, icp: p.icp, candidates: p.candidates } }];"
+   },
+   "id": "735fad3c-9f71-4d42-b29e-3c9ff867f951",
+   "name": "A3 Input",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    3080,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "source": "database",
+    "workflowId": {
+     "__rl": true,
+     "mode": "id",
+     "value": "__WFID:A3_VERIFICATION__"
+    },
+    "mode": "once",
+    "workflowInputs": {
+     "mappingMode": "defineBelow",
+     "value": null
+    },
+    "options": {}
+   },
+   "id": "f5bd750f-62f9-468d-b3fd-0b9c58d8b1b0",
+   "name": "A3 Account Verification",
+   "type": "n8n-nodes-base.executeWorkflow",
+   "typeVersion": 1.3,
+   "position": [
+    3280,
+    0
+   ],
+   "onError": "continueErrorOutput"
+  },
+  {
+   "parameters": {
+    "jsCode": "\n// ===== shared helpers (BDR agent) =====\nconst FA = 'http://127.0.0.1:8000';\nasync function ingest(campaign_id, type, payload, retries = 3) {\n  for (let i = 0; i < retries; i++) {\n    try {\n      await this.helpers.httpRequest({ method: 'POST', url: FA + '/api/ingest',\n        body: JSON.stringify({ campaign_id, type, payload }),\n        headers: { 'Content-Type': 'application/json' }, timeout: 15000 });\n      return { ok: true };\n    } catch (e) {\n      if (i === retries - 1) return { ok: false, error: String((e && e.message) || e) };\n      await new Promise(r => setTimeout(r, 1500));\n    }\n  }\n}\nasync function faGet(path, timeout = 30000) {\n  const resp = await this.helpers.httpRequest({ method: 'GET', url: FA + path, timeout });\n  if (typeof resp === 'string') { try { return JSON.parse(resp); } catch (e) { return resp; } }\n  return resp;\n}\nfunction parseJsonLoose(text) {\n  if (!text) return null;\n  let t = String(text).trim();\n  t = t.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();\n  const s = t.indexOf('{'); const e = t.lastIndexOf('}');\n  if (s === -1 || e === -1 || e <= s) return null;\n  try { return JSON.parse(t.slice(s, e + 1)); } catch (err) { return null; }\n}\nfunction htmlToText(html) {\n  if (!html) return '';\n  let h = String(html);\n  h = h.replace(/<script[^>]*>[\\s\\S]*?<\\/script>/gi, ' ');\n  h = h.replace(/<style[^>]*>[\\s\\S]*?<\\/style>/gi, ' ');\n  h = h.replace(/<nav[^>]*>[\\s\\S]*?<\\/nav>/gi, ' ');\n  h = h.replace(/<footer[^>]*>[\\s\\S]*?<\\/footer>/gi, ' ');\n  h = h.replace(/<(br|\\/p|\\/div|\\/h[1-6]|\\/li|\\/tr)[^>]*>/gi, '\\n');\n  h = h.replace(/<[^>]+>/g, ' ');\n  h = h.replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\");\n  h = h.replace(/[ \\t]+/g, ' ');\n  h = h.replace(/\\n\\s*\\n+/g, '\\n');\n  return h.trim();\n}\nfunction parseRss(xml) {\n  const out = [];\n  if (!xml) return out;\n  const items = String(xml).match(/<item>[\\s\\S]*?<\\/item>/g) || [];\n  const grab = (block, tag) => {\n    const m = block.match(new RegExp('<' + tag + '[^>]*>([\\\\s\\\\S]*?)</' + tag + '>', 'i'));\n    return m ? m[1].replace(/<!\\[CDATA\\[|\\]\\]>/g, '').trim() : '';\n  };\n  for (const it of items.slice(0, 12)) {\n    const title = grab(it, 'title').replace(/&amp;/g, '&').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\");\n    const link = grab(it, 'link');\n    const pub = grab(it, 'pubDate');\n    let desc = grab(it, 'description').replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\").replace(/\\s+/g, ' ').trim();\n    if (title && link) out.push({ title, url: link, snippet: desc.slice(0, 500), published: pub || null, source: 'Google News' });\n  }\n  return out;\n}\nfunction safeNode(name) { try { const h = $(name); const n = (h && h.first) ? h.first() : h; if (n && n.json !== undefined) return n; } catch (e) {} return null; }\nfunction outText(name) { const n = safeNode(name); if (!n) return ''; const j = n.json; if (typeof j === 'string') return j; if (j && typeof j.data === 'string') return j.data; return (j && j.json && typeof j.json.data === 'string') ? j.json.data : ''; }\n\nconst sub = $json;\nconst p0 = $('A3 Input').first().json;\nconst failed = !sub || sub.status === 'failed' || !sub.stage;\nawait ingest(p0.campaign.id, 'agent_run_end', {\n  agent: 'account_verification',\n  status: failed ? 'failed' : 'done',\n  finished_at: new Date().toISOString(),\n  detail: JSON.stringify((sub && sub.counts) || (sub && sub.status) || (sub && sub.reason) || null).slice(0, 400),\n  error: failed ? String((sub && (sub.error || sub.message || sub.reason)) || 'sub-workflow execution error (see n8n executions)').slice(0, 400) : null\n});\nreturn [{ json: sub || { stage: 'account_verification', status: 'failed', error: 'sub-workflow produced no output' } }];\n"
+   },
+   "id": "9cae374c-f79d-4adf-9647-8bf16ecf6d5a",
+   "name": "Account Verification (ICP fit + evidence) end",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    3480,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "jsCode": "const sub = $json;\nconst ctx = $('A3 Input').first().json;\nconst r = { campaign: ctx.campaign, kb: ctx.kb || {} };\nr.icp = ctx.icp || null; r.candidates = ctx.candidates || []; r.qualified_accounts = ctx.qualified_accounts || []; r.contacts = ctx.contacts || []; r.verified_contacts = ctx.verified_contacts || []; r.research = ctx.research || []; r.emails = ctx.emails || [];\nr.qualified_accounts = (sub.qualified_accounts || []).length ? sub.qualified_accounts : ctx.qualified_accounts;\nreturn [{ json: r }];"
+   },
+   "id": "766f2a7b-66e0-4c5b-819b-50afc067e75c",
+   "name": "A3 Carry",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    3680,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "jsCode": "\n// ===== shared helpers (BDR agent) =====\nconst FA = 'http://127.0.0.1:8000';\nasync function ingest(campaign_id, type, payload, retries = 3) {\n  for (let i = 0; i < retries; i++) {\n    try {\n      await this.helpers.httpRequest({ method: 'POST', url: FA + '/api/ingest',\n        body: JSON.stringify({ campaign_id, type, payload }),\n        headers: { 'Content-Type': 'application/json' }, timeout: 15000 });\n      return { ok: true };\n    } catch (e) {\n      if (i === retries - 1) return { ok: false, error: String((e && e.message) || e) };\n      await new Promise(r => setTimeout(r, 1500));\n    }\n  }\n}\nasync function faGet(path, timeout = 30000) {\n  const resp = await this.helpers.httpRequest({ method: 'GET', url: FA + path, timeout });\n  if (typeof resp === 'string') { try { return JSON.parse(resp); } catch (e) { return resp; } }\n  return resp;\n}\nfunction parseJsonLoose(text) {\n  if (!text) return null;\n  let t = String(text).trim();\n  t = t.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();\n  const s = t.indexOf('{'); const e = t.lastIndexOf('}');\n  if (s === -1 || e === -1 || e <= s) return null;\n  try { return JSON.parse(t.slice(s, e + 1)); } catch (err) { return null; }\n}\nfunction htmlToText(html) {\n  if (!html) return '';\n  let h = String(html);\n  h = h.replace(/<script[^>]*>[\\s\\S]*?<\\/script>/gi, ' ');\n  h = h.replace(/<style[^>]*>[\\s\\S]*?<\\/style>/gi, ' ');\n  h = h.replace(/<nav[^>]*>[\\s\\S]*?<\\/nav>/gi, ' ');\n  h = h.replace(/<footer[^>]*>[\\s\\S]*?<\\/footer>/gi, ' ');\n  h = h.replace(/<(br|\\/p|\\/div|\\/h[1-6]|\\/li|\\/tr)[^>]*>/gi, '\\n');\n  h = h.replace(/<[^>]+>/g, ' ');\n  h = h.replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\");\n  h = h.replace(/[ \\t]+/g, ' ');\n  h = h.replace(/\\n\\s*\\n+/g, '\\n');\n  return h.trim();\n}\nfunction parseRss(xml) {\n  const out = [];\n  if (!xml) return out;\n  const items = String(xml).match(/<item>[\\s\\S]*?<\\/item>/g) || [];\n  const grab = (block, tag) => {\n    const m = block.match(new RegExp('<' + tag + '[^>]*>([\\\\s\\\\S]*?)</' + tag + '>', 'i'));\n    return m ? m[1].replace(/<!\\[CDATA\\[|\\]\\]>/g, '').trim() : '';\n  };\n  for (const it of items.slice(0, 12)) {\n    const title = grab(it, 'title').replace(/&amp;/g, '&').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\");\n    const link = grab(it, 'link');\n    const pub = grab(it, 'pubDate');\n    let desc = grab(it, 'description').replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\").replace(/\\s+/g, ' ').trim();\n    if (title && link) out.push({ title, url: link, snippet: desc.slice(0, 500), published: pub || null, source: 'Google News' });\n  }\n  return out;\n}\nfunction safeNode(name) { try { const h = $(name); const n = (h && h.first) ? h.first() : h; if (n && n.json !== undefined) return n; } catch (e) {} return null; }\nfunction outText(name) { const n = safeNode(name); if (!n) return ''; const j = n.json; if (typeof j === 'string') return j; if (j && typeof j.data === 'string') return j.data; return (j && j.json && typeof j.json.data === 'string') ? j.json.data : ''; }\n\nconst p = $json;\nawait ingest(p.campaign.id, 'agent_run', { agent: 'contact_discovery', label: 'Contact Discovery (target personas)', status: 'running', started_at: new Date().toISOString() });\nreturn [{ json: p }];\n"
+   },
+   "id": "c26a9877-4803-4cef-a63f-43a046996d60",
+   "name": "Contact Discovery (target personas) start",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    3880,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "jsCode": "const p = $json;\nreturn [{ json: { campaign: p.campaign, qualified_accounts: p.qualified_accounts } }];"
+   },
+   "id": "5106d1c2-ff98-4aa0-bbad-e9aa619285a1",
+   "name": "A4 Input",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    4080,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "source": "database",
+    "workflowId": {
+     "__rl": true,
+     "mode": "id",
+     "value": "__WFID:A4_CONTACTS__"
+    },
+    "mode": "once",
+    "workflowInputs": {
+     "mappingMode": "defineBelow",
+     "value": null
+    },
+    "options": {}
+   },
+   "id": "7c8384cd-0631-462c-80e6-d418e5c499e2",
+   "name": "A4 Contact Discovery",
+   "type": "n8n-nodes-base.executeWorkflow",
+   "typeVersion": 1.3,
+   "position": [
+    4280,
+    0
+   ],
+   "onError": "continueErrorOutput"
+  },
+  {
+   "parameters": {
+    "jsCode": "\n// ===== shared helpers (BDR agent) =====\nconst FA = 'http://127.0.0.1:8000';\nasync function ingest(campaign_id, type, payload, retries = 3) {\n  for (let i = 0; i < retries; i++) {\n    try {\n      await this.helpers.httpRequest({ method: 'POST', url: FA + '/api/ingest',\n        body: JSON.stringify({ campaign_id, type, payload }),\n        headers: { 'Content-Type': 'application/json' }, timeout: 15000 });\n      return { ok: true };\n    } catch (e) {\n      if (i === retries - 1) return { ok: false, error: String((e && e.message) || e) };\n      await new Promise(r => setTimeout(r, 1500));\n    }\n  }\n}\nasync function faGet(path, timeout = 30000) {\n  const resp = await this.helpers.httpRequest({ method: 'GET', url: FA + path, timeout });\n  if (typeof resp === 'string') { try { return JSON.parse(resp); } catch (e) { return resp; } }\n  return resp;\n}\nfunction parseJsonLoose(text) {\n  if (!text) return null;\n  let t = String(text).trim();\n  t = t.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();\n  const s = t.indexOf('{'); const e = t.lastIndexOf('}');\n  if (s === -1 || e === -1 || e <= s) return null;\n  try { return JSON.parse(t.slice(s, e + 1)); } catch (err) { return null; }\n}\nfunction htmlToText(html) {\n  if (!html) return '';\n  let h = String(html);\n  h = h.replace(/<script[^>]*>[\\s\\S]*?<\\/script>/gi, ' ');\n  h = h.replace(/<style[^>]*>[\\s\\S]*?<\\/style>/gi, ' ');\n  h = h.replace(/<nav[^>]*>[\\s\\S]*?<\\/nav>/gi, ' ');\n  h = h.replace(/<footer[^>]*>[\\s\\S]*?<\\/footer>/gi, ' ');\n  h = h.replace(/<(br|\\/p|\\/div|\\/h[1-6]|\\/li|\\/tr)[^>]*>/gi, '\\n');\n  h = h.replace(/<[^>]+>/g, ' ');\n  h = h.replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\");\n  h = h.replace(/[ \\t]+/g, ' ');\n  h = h.replace(/\\n\\s*\\n+/g, '\\n');\n  return h.trim();\n}\nfunction parseRss(xml) {\n  const out = [];\n  if (!xml) return out;\n  const items = String(xml).match(/<item>[\\s\\S]*?<\\/item>/g) || [];\n  const grab = (block, tag) => {\n    const m = block.match(new RegExp('<' + tag + '[^>]*>([\\\\s\\\\S]*?)</' + tag + '>', 'i'));\n    return m ? m[1].replace(/<!\\[CDATA\\[|\\]\\]>/g, '').trim() : '';\n  };\n  for (const it of items.slice(0, 12)) {\n    const title = grab(it, 'title').replace(/&amp;/g, '&').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\");\n    const link = grab(it, 'link');\n    const pub = grab(it, 'pubDate');\n    let desc = grab(it, 'description').replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\").replace(/\\s+/g, ' ').trim();\n    if (title && link) out.push({ title, url: link, snippet: desc.slice(0, 500), published: pub || null, source: 'Google News' });\n  }\n  return out;\n}\nfunction safeNode(name) { try { const h = $(name); const n = (h && h.first) ? h.first() : h; if (n && n.json !== undefined) return n; } catch (e) {} return null; }\nfunction outText(name) { const n = safeNode(name); if (!n) return ''; const j = n.json; if (typeof j === 'string') return j; if (j && typeof j.data === 'string') return j.data; return (j && j.json && typeof j.json.data === 'string') ? j.json.data : ''; }\n\nconst sub = $json;\nconst p0 = $('A4 Input').first().json;\nconst failed = !sub || sub.status === 'failed' || !sub.stage;\nawait ingest(p0.campaign.id, 'agent_run_end', {\n  agent: 'contact_discovery',\n  status: failed ? 'failed' : 'done',\n  finished_at: new Date().toISOString(),\n  detail: JSON.stringify((sub && sub.counts) || (sub && sub.status) || (sub && sub.reason) || null).slice(0, 400),\n  error: failed ? String((sub && (sub.error || sub.message || sub.reason)) || 'sub-workflow execution error (see n8n executions)').slice(0, 400) : null\n});\nreturn [{ json: sub || { stage: 'contact_discovery', status: 'failed', error: 'sub-workflow produced no output' } }];\n"
+   },
+   "id": "42144f1b-c64d-4576-b45e-2458f4eaf645",
+   "name": "Contact Discovery (target personas) end",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    4480,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "jsCode": "const sub = $json;\nconst ctx = $('A4 Input').first().json;\nconst r = { campaign: ctx.campaign, kb: ctx.kb || {} };\nr.icp = ctx.icp || null; r.candidates = ctx.candidates || []; r.qualified_accounts = ctx.qualified_accounts || []; r.contacts = ctx.contacts || []; r.verified_contacts = ctx.verified_contacts || []; r.research = ctx.research || []; r.emails = ctx.emails || [];\nr.contacts = (sub.contacts || []).length ? sub.contacts : ctx.contacts;\nreturn [{ json: r }];"
+   },
+   "id": "6f8aba1d-8ad0-42c8-9157-ffe5a619b787",
+   "name": "A4 Carry",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    4680,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "jsCode": "\n// ===== shared helpers (BDR agent) =====\nconst FA = 'http://127.0.0.1:8000';\nasync function ingest(campaign_id, type, payload, retries = 3) {\n  for (let i = 0; i < retries; i++) {\n    try {\n      await this.helpers.httpRequest({ method: 'POST', url: FA + '/api/ingest',\n        body: JSON.stringify({ campaign_id, type, payload }),\n        headers: { 'Content-Type': 'application/json' }, timeout: 15000 });\n      return { ok: true };\n    } catch (e) {\n      if (i === retries - 1) return { ok: false, error: String((e && e.message) || e) };\n      await new Promise(r => setTimeout(r, 1500));\n    }\n  }\n}\nasync function faGet(path, timeout = 30000) {\n  const resp = await this.helpers.httpRequest({ method: 'GET', url: FA + path, timeout });\n  if (typeof resp === 'string') { try { return JSON.parse(resp); } catch (e) { return resp; } }\n  return resp;\n}\nfunction parseJsonLoose(text) {\n  if (!text) return null;\n  let t = String(text).trim();\n  t = t.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();\n  const s = t.indexOf('{'); const e = t.lastIndexOf('}');\n  if (s === -1 || e === -1 || e <= s) return null;\n  try { return JSON.parse(t.slice(s, e + 1)); } catch (err) { return null; }\n}\nfunction htmlToText(html) {\n  if (!html) return '';\n  let h = String(html);\n  h = h.replace(/<script[^>]*>[\\s\\S]*?<\\/script>/gi, ' ');\n  h = h.replace(/<style[^>]*>[\\s\\S]*?<\\/style>/gi, ' ');\n  h = h.replace(/<nav[^>]*>[\\s\\S]*?<\\/nav>/gi, ' ');\n  h = h.replace(/<footer[^>]*>[\\s\\S]*?<\\/footer>/gi, ' ');\n  h = h.replace(/<(br|\\/p|\\/div|\\/h[1-6]|\\/li|\\/tr)[^>]*>/gi, '\\n');\n  h = h.replace(/<[^>]+>/g, ' ');\n  h = h.replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\");\n  h = h.replace(/[ \\t]+/g, ' ');\n  h = h.replace(/\\n\\s*\\n+/g, '\\n');\n  return h.trim();\n}\nfunction parseRss(xml) {\n  const out = [];\n  if (!xml) return out;\n  const items = String(xml).match(/<item>[\\s\\S]*?<\\/item>/g) || [];\n  const grab = (block, tag) => {\n    const m = block.match(new RegExp('<' + tag + '[^>]*>([\\\\s\\\\S]*?)</' + tag + '>', 'i'));\n    return m ? m[1].replace(/<!\\[CDATA\\[|\\]\\]>/g, '').trim() : '';\n  };\n  for (const it of items.slice(0, 12)) {\n    const title = grab(it, 'title').replace(/&amp;/g, '&').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\");\n    const link = grab(it, 'link');\n    const pub = grab(it, 'pubDate');\n    let desc = grab(it, 'description').replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\").replace(/\\s+/g, ' ').trim();\n    if (title && link) out.push({ title, url: link, snippet: desc.slice(0, 500), published: pub || null, source: 'Google News' });\n  }\n  return out;\n}\nfunction safeNode(name) { try { const h = $(name); const n = (h && h.first) ? h.first() : h; if (n && n.json !== undefined) return n; } catch (e) {} return null; }\nfunction outText(name) { const n = safeNode(name); if (!n) return ''; const j = n.json; if (typeof j === 'string') return j; if (j && typeof j.data === 'string') return j.data; return (j && j.json && typeof j.json.data === 'string') ? j.json.data : ''; }\n\nconst p = $json;\nawait ingest(p.campaign.id, 'agent_run', { agent: 'contact_verification', label: 'Contact Verification (real + current)', status: 'running', started_at: new Date().toISOString() });\nreturn [{ json: p }];\n"
+   },
+   "id": "8a6c6285-2587-41b7-8ced-81bf6e515cf2",
+   "name": "Contact Verification (real + current) start",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    4880,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "jsCode": "const p = $json;\nreturn [{ json: { campaign: p.campaign, contacts: p.verified_contacts } }];"
+   },
+   "id": "1ab06229-42d3-44b2-a485-b6ce1c16a13c",
+   "name": "A5 Input",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    5080,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "source": "database",
+    "workflowId": {
+     "__rl": true,
+     "mode": "id",
+     "value": "__WFID:A5_CONTACT_VERIFY__"
+    },
+    "mode": "once",
+    "workflowInputs": {
+     "mappingMode": "defineBelow",
+     "value": null
+    },
+    "options": {}
+   },
+   "id": "7a6f3057-5ad0-45c4-8328-c0d1a8032235",
+   "name": "A5 Contact Verification",
+   "type": "n8n-nodes-base.executeWorkflow",
+   "typeVersion": 1.3,
+   "position": [
+    5280,
+    0
+   ],
+   "onError": "continueErrorOutput"
+  },
+  {
+   "parameters": {
+    "jsCode": "\n// ===== shared helpers (BDR agent) =====\nconst FA = 'http://127.0.0.1:8000';\nasync function ingest(campaign_id, type, payload, retries = 3) {\n  for (let i = 0; i < retries; i++) {\n    try {\n      await this.helpers.httpRequest({ method: 'POST', url: FA + '/api/ingest',\n        body: JSON.stringify({ campaign_id, type, payload }),\n        headers: { 'Content-Type': 'application/json' }, timeout: 15000 });\n      return { ok: true };\n    } catch (e) {\n      if (i === retries - 1) return { ok: false, error: String((e && e.message) || e) };\n      await new Promise(r => setTimeout(r, 1500));\n    }\n  }\n}\nasync function faGet(path, timeout = 30000) {\n  const resp = await this.helpers.httpRequest({ method: 'GET', url: FA + path, timeout });\n  if (typeof resp === 'string') { try { return JSON.parse(resp); } catch (e) { return resp; } }\n  return resp;\n}\nfunction parseJsonLoose(text) {\n  if (!text) return null;\n  let t = String(text).trim();\n  t = t.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();\n  const s = t.indexOf('{'); const e = t.lastIndexOf('}');\n  if (s === -1 || e === -1 || e <= s) return null;\n  try { return JSON.parse(t.slice(s, e + 1)); } catch (err) { return null; }\n}\nfunction htmlToText(html) {\n  if (!html) return '';\n  let h = String(html);\n  h = h.replace(/<script[^>]*>[\\s\\S]*?<\\/script>/gi, ' ');\n  h = h.replace(/<style[^>]*>[\\s\\S]*?<\\/style>/gi, ' ');\n  h = h.replace(/<nav[^>]*>[\\s\\S]*?<\\/nav>/gi, ' ');\n  h = h.replace(/<footer[^>]*>[\\s\\S]*?<\\/footer>/gi, ' ');\n  h = h.replace(/<(br|\\/p|\\/div|\\/h[1-6]|\\/li|\\/tr)[^>]*>/gi, '\\n');\n  h = h.replace(/<[^>]+>/g, ' ');\n  h = h.replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\");\n  h = h.replace(/[ \\t]+/g, ' ');\n  h = h.replace(/\\n\\s*\\n+/g, '\\n');\n  return h.trim();\n}\nfunction parseRss(xml) {\n  const out = [];\n  if (!xml) return out;\n  const items = String(xml).match(/<item>[\\s\\S]*?<\\/item>/g) || [];\n  const grab = (block, tag) => {\n    const m = block.match(new RegExp('<' + tag + '[^>]*>([\\\\s\\\\S]*?)</' + tag + '>', 'i'));\n    return m ? m[1].replace(/<!\\[CDATA\\[|\\]\\]>/g, '').trim() : '';\n  };\n  for (const it of items.slice(0, 12)) {\n    const title = grab(it, 'title').replace(/&amp;/g, '&').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\");\n    const link = grab(it, 'link');\n    const pub = grab(it, 'pubDate');\n    let desc = grab(it, 'description').replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\").replace(/\\s+/g, ' ').trim();\n    if (title && link) out.push({ title, url: link, snippet: desc.slice(0, 500), published: pub || null, source: 'Google News' });\n  }\n  return out;\n}\nfunction safeNode(name) { try { const h = $(name); const n = (h && h.first) ? h.first() : h; if (n && n.json !== undefined) return n; } catch (e) {} return null; }\nfunction outText(name) { const n = safeNode(name); if (!n) return ''; const j = n.json; if (typeof j === 'string') return j; if (j && typeof j.data === 'string') return j.data; return (j && j.json && typeof j.json.data === 'string') ? j.json.data : ''; }\n\nconst sub = $json;\nconst p0 = $('A5 Input').first().json;\nconst failed = !sub || sub.status === 'failed' || !sub.stage;\nawait ingest(p0.campaign.id, 'agent_run_end', {\n  agent: 'contact_verification',\n  status: failed ? 'failed' : 'done',\n  finished_at: new Date().toISOString(),\n  detail: JSON.stringify((sub && sub.counts) || (sub && sub.status) || (sub && sub.reason) || null).slice(0, 400),\n  error: failed ? String((sub && (sub.error || sub.message || sub.reason)) || 'sub-workflow execution error (see n8n executions)').slice(0, 400) : null\n});\nreturn [{ json: sub || { stage: 'contact_verification', status: 'failed', error: 'sub-workflow produced no output' } }];\n"
+   },
+   "id": "552d4244-48b9-4b0c-9935-31caafc097b6",
+   "name": "Contact Verification (real + current) end",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    5480,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "jsCode": "const sub = $json;\nconst ctx = $('A5 Input').first().json;\nconst r = { campaign: ctx.campaign, kb: ctx.kb || {} };\nr.icp = ctx.icp || null; r.candidates = ctx.candidates || []; r.qualified_accounts = ctx.qualified_accounts || []; r.contacts = ctx.contacts || []; r.verified_contacts = ctx.verified_contacts || []; r.research = ctx.research || []; r.emails = ctx.emails || [];\nr.verified_contacts = (sub.verified_contacts || []).length ? sub.verified_contacts : ctx.verified_contacts;\nreturn [{ json: r }];"
+   },
+   "id": "a9a5aa55-265d-4f32-bdbb-937f814df057",
+   "name": "A5 Carry",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    5680,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "jsCode": "\n// ===== shared helpers (BDR agent) =====\nconst FA = 'http://127.0.0.1:8000';\nasync function ingest(campaign_id, type, payload, retries = 3) {\n  for (let i = 0; i < retries; i++) {\n    try {\n      await this.helpers.httpRequest({ method: 'POST', url: FA + '/api/ingest',\n        body: JSON.stringify({ campaign_id, type, payload }),\n        headers: { 'Content-Type': 'application/json' }, timeout: 15000 });\n      return { ok: true };\n    } catch (e) {\n      if (i === retries - 1) return { ok: false, error: String((e && e.message) || e) };\n      await new Promise(r => setTimeout(r, 1500));\n    }\n  }\n}\nasync function faGet(path, timeout = 30000) {\n  const resp = await this.helpers.httpRequest({ method: 'GET', url: FA + path, timeout });\n  if (typeof resp === 'string') { try { return JSON.parse(resp); } catch (e) { return resp; } }\n  return resp;\n}\nfunction parseJsonLoose(text) {\n  if (!text) return null;\n  let t = String(text).trim();\n  t = t.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();\n  const s = t.indexOf('{'); const e = t.lastIndexOf('}');\n  if (s === -1 || e === -1 || e <= s) return null;\n  try { return JSON.parse(t.slice(s, e + 1)); } catch (err) { return null; }\n}\nfunction htmlToText(html) {\n  if (!html) return '';\n  let h = String(html);\n  h = h.replace(/<script[^>]*>[\\s\\S]*?<\\/script>/gi, ' ');\n  h = h.replace(/<style[^>]*>[\\s\\S]*?<\\/style>/gi, ' ');\n  h = h.replace(/<nav[^>]*>[\\s\\S]*?<\\/nav>/gi, ' ');\n  h = h.replace(/<footer[^>]*>[\\s\\S]*?<\\/footer>/gi, ' ');\n  h = h.replace(/<(br|\\/p|\\/div|\\/h[1-6]|\\/li|\\/tr)[^>]*>/gi, '\\n');\n  h = h.replace(/<[^>]+>/g, ' ');\n  h = h.replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\");\n  h = h.replace(/[ \\t]+/g, ' ');\n  h = h.replace(/\\n\\s*\\n+/g, '\\n');\n  return h.trim();\n}\nfunction parseRss(xml) {\n  const out = [];\n  if (!xml) return out;\n  const items = String(xml).match(/<item>[\\s\\S]*?<\\/item>/g) || [];\n  const grab = (block, tag) => {\n    const m = block.match(new RegExp('<' + tag + '[^>]*>([\\\\s\\\\S]*?)</' + tag + '>', 'i'));\n    return m ? m[1].replace(/<!\\[CDATA\\[|\\]\\]>/g, '').trim() : '';\n  };\n  for (const it of items.slice(0, 12)) {\n    const title = grab(it, 'title').replace(/&amp;/g, '&').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\");\n    const link = grab(it, 'link');\n    const pub = grab(it, 'pubDate');\n    let desc = grab(it, 'description').replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\").replace(/\\s+/g, ' ').trim();\n    if (title && link) out.push({ title, url: link, snippet: desc.slice(0, 500), published: pub || null, source: 'Google News' });\n  }\n  return out;\n}\nfunction safeNode(name) { try { const h = $(name); const n = (h && h.first) ? h.first() : h; if (n && n.json !== undefined) return n; } catch (e) {} return null; }\nfunction outText(name) { const n = safeNode(name); if (!n) return ''; const j = n.json; if (typeof j === 'string') return j; if (j && typeof j.data === 'string') return j.data; return (j && j.json && typeof j.json.data === 'string') ? j.json.data : ''; }\n\nconst p = $json;\nawait ingest(p.campaign.id, 'agent_run', { agent: 'deep_research', label: 'Deep Research (5 buckets)', status: 'running', started_at: new Date().toISOString() });\nreturn [{ json: p }];\n"
+   },
+   "id": "b9ae7eb4-5ef7-4fa3-be24-864ece04c733",
+   "name": "Deep Research (5 buckets) start",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    5880,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "jsCode": "const p = $json;\nreturn [{ json: { campaign: p.campaign, qualified_accounts: p.qualified_accounts } }];"
+   },
+   "id": "19b5e10a-b1e8-4906-8dfc-1f27f2ddec3e",
+   "name": "A6 Input",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    6080,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "source": "database",
+    "workflowId": {
+     "__rl": true,
+     "mode": "id",
+     "value": "__WFID:A6_RESEARCH__"
+    },
+    "mode": "once",
+    "workflowInputs": {
+     "mappingMode": "defineBelow",
+     "value": null
+    },
+    "options": {}
+   },
+   "id": "00b74b9e-fe7c-466b-81ed-0c301baa401c",
+   "name": "A6 Deep Research",
+   "type": "n8n-nodes-base.executeWorkflow",
+   "typeVersion": 1.3,
+   "position": [
+    6280,
+    0
+   ],
+   "onError": "continueErrorOutput"
+  },
+  {
+   "parameters": {
+    "jsCode": "\n// ===== shared helpers (BDR agent) =====\nconst FA = 'http://127.0.0.1:8000';\nasync function ingest(campaign_id, type, payload, retries = 3) {\n  for (let i = 0; i < retries; i++) {\n    try {\n      await this.helpers.httpRequest({ method: 'POST', url: FA + '/api/ingest',\n        body: JSON.stringify({ campaign_id, type, payload }),\n        headers: { 'Content-Type': 'application/json' }, timeout: 15000 });\n      return { ok: true };\n    } catch (e) {\n      if (i === retries - 1) return { ok: false, error: String((e && e.message) || e) };\n      await new Promise(r => setTimeout(r, 1500));\n    }\n  }\n}\nasync function faGet(path, timeout = 30000) {\n  const resp = await this.helpers.httpRequest({ method: 'GET', url: FA + path, timeout });\n  if (typeof resp === 'string') { try { return JSON.parse(resp); } catch (e) { return resp; } }\n  return resp;\n}\nfunction parseJsonLoose(text) {\n  if (!text) return null;\n  let t = String(text).trim();\n  t = t.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();\n  const s = t.indexOf('{'); const e = t.lastIndexOf('}');\n  if (s === -1 || e === -1 || e <= s) return null;\n  try { return JSON.parse(t.slice(s, e + 1)); } catch (err) { return null; }\n}\nfunction htmlToText(html) {\n  if (!html) return '';\n  let h = String(html);\n  h = h.replace(/<script[^>]*>[\\s\\S]*?<\\/script>/gi, ' ');\n  h = h.replace(/<style[^>]*>[\\s\\S]*?<\\/style>/gi, ' ');\n  h = h.replace(/<nav[^>]*>[\\s\\S]*?<\\/nav>/gi, ' ');\n  h = h.replace(/<footer[^>]*>[\\s\\S]*?<\\/footer>/gi, ' ');\n  h = h.replace(/<(br|\\/p|\\/div|\\/h[1-6]|\\/li|\\/tr)[^>]*>/gi, '\\n');\n  h = h.replace(/<[^>]+>/g, ' ');\n  h = h.replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\");\n  h = h.replace(/[ \\t]+/g, ' ');\n  h = h.replace(/\\n\\s*\\n+/g, '\\n');\n  return h.trim();\n}\nfunction parseRss(xml) {\n  const out = [];\n  if (!xml) return out;\n  const items = String(xml).match(/<item>[\\s\\S]*?<\\/item>/g) || [];\n  const grab = (block, tag) => {\n    const m = block.match(new RegExp('<' + tag + '[^>]*>([\\\\s\\\\S]*?)</' + tag + '>', 'i'));\n    return m ? m[1].replace(/<!\\[CDATA\\[|\\]\\]>/g, '').trim() : '';\n  };\n  for (const it of items.slice(0, 12)) {\n    const title = grab(it, 'title').replace(/&amp;/g, '&').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\");\n    const link = grab(it, 'link');\n    const pub = grab(it, 'pubDate');\n    let desc = grab(it, 'description').replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\").replace(/\\s+/g, ' ').trim();\n    if (title && link) out.push({ title, url: link, snippet: desc.slice(0, 500), published: pub || null, source: 'Google News' });\n  }\n  return out;\n}\nfunction safeNode(name) { try { const h = $(name); const n = (h && h.first) ? h.first() : h; if (n && n.json !== undefined) return n; } catch (e) {} return null; }\nfunction outText(name) { const n = safeNode(name); if (!n) return ''; const j = n.json; if (typeof j === 'string') return j; if (j && typeof j.data === 'string') return j.data; return (j && j.json && typeof j.json.data === 'string') ? j.json.data : ''; }\n\nconst sub = $json;\nconst p0 = $('A6 Input').first().json;\nconst failed = !sub || sub.status === 'failed' || !sub.stage;\nawait ingest(p0.campaign.id, 'agent_run_end', {\n  agent: 'deep_research',\n  status: failed ? 'failed' : 'done',\n  finished_at: new Date().toISOString(),\n  detail: JSON.stringify((sub && sub.counts) || (sub && sub.status) || (sub && sub.reason) || null).slice(0, 400),\n  error: failed ? String((sub && (sub.error || sub.message || sub.reason)) || 'sub-workflow execution error (see n8n executions)').slice(0, 400) : null\n});\nreturn [{ json: sub || { stage: 'deep_research', status: 'failed', error: 'sub-workflow produced no output' } }];\n"
+   },
+   "id": "331a0612-0498-4c80-affa-8b5ead989bb2",
+   "name": "Deep Research (5 buckets) end",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    6480,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "jsCode": "const sub = $json;\nconst ctx = $('A6 Input').first().json;\nconst r = { campaign: ctx.campaign, kb: ctx.kb || {} };\nr.icp = ctx.icp || null; r.candidates = ctx.candidates || []; r.qualified_accounts = ctx.qualified_accounts || []; r.contacts = ctx.contacts || []; r.verified_contacts = ctx.verified_contacts || []; r.research = ctx.research || []; r.emails = ctx.emails || [];\nr.research = (sub.research || []).length ? sub.research : ctx.research;\nreturn [{ json: r }];"
+   },
+   "id": "d9d5f4a9-332b-4aa8-b0c5-a40dc3d8525c",
+   "name": "A6 Carry",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    6680,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "jsCode": "\n// ===== shared helpers (BDR agent) =====\nconst FA = 'http://127.0.0.1:8000';\nasync function ingest(campaign_id, type, payload, retries = 3) {\n  for (let i = 0; i < retries; i++) {\n    try {\n      await this.helpers.httpRequest({ method: 'POST', url: FA + '/api/ingest',\n        body: JSON.stringify({ campaign_id, type, payload }),\n        headers: { 'Content-Type': 'application/json' }, timeout: 15000 });\n      return { ok: true };\n    } catch (e) {\n      if (i === retries - 1) return { ok: false, error: String((e && e.message) || e) };\n      await new Promise(r => setTimeout(r, 1500));\n    }\n  }\n}\nasync function faGet(path, timeout = 30000) {\n  const resp = await this.helpers.httpRequest({ method: 'GET', url: FA + path, timeout });\n  if (typeof resp === 'string') { try { return JSON.parse(resp); } catch (e) { return resp; } }\n  return resp;\n}\nfunction parseJsonLoose(text) {\n  if (!text) return null;\n  let t = String(text).trim();\n  t = t.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();\n  const s = t.indexOf('{'); const e = t.lastIndexOf('}');\n  if (s === -1 || e === -1 || e <= s) return null;\n  try { return JSON.parse(t.slice(s, e + 1)); } catch (err) { return null; }\n}\nfunction htmlToText(html) {\n  if (!html) return '';\n  let h = String(html);\n  h = h.replace(/<script[^>]*>[\\s\\S]*?<\\/script>/gi, ' ');\n  h = h.replace(/<style[^>]*>[\\s\\S]*?<\\/style>/gi, ' ');\n  h = h.replace(/<nav[^>]*>[\\s\\S]*?<\\/nav>/gi, ' ');\n  h = h.replace(/<footer[^>]*>[\\s\\S]*?<\\/footer>/gi, ' ');\n  h = h.replace(/<(br|\\/p|\\/div|\\/h[1-6]|\\/li|\\/tr)[^>]*>/gi, '\\n');\n  h = h.replace(/<[^>]+>/g, ' ');\n  h = h.replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\");\n  h = h.replace(/[ \\t]+/g, ' ');\n  h = h.replace(/\\n\\s*\\n+/g, '\\n');\n  return h.trim();\n}\nfunction parseRss(xml) {\n  const out = [];\n  if (!xml) return out;\n  const items = String(xml).match(/<item>[\\s\\S]*?<\\/item>/g) || [];\n  const grab = (block, tag) => {\n    const m = block.match(new RegExp('<' + tag + '[^>]*>([\\\\s\\\\S]*?)</' + tag + '>', 'i'));\n    return m ? m[1].replace(/<!\\[CDATA\\[|\\]\\]>/g, '').trim() : '';\n  };\n  for (const it of items.slice(0, 12)) {\n    const title = grab(it, 'title').replace(/&amp;/g, '&').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\");\n    const link = grab(it, 'link');\n    const pub = grab(it, 'pubDate');\n    let desc = grab(it, 'description').replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\").replace(/\\s+/g, ' ').trim();\n    if (title && link) out.push({ title, url: link, snippet: desc.slice(0, 500), published: pub || null, source: 'Google News' });\n  }\n  return out;\n}\nfunction safeNode(name) { try { const h = $(name); const n = (h && h.first) ? h.first() : h; if (n && n.json !== undefined) return n; } catch (e) {} return null; }\nfunction outText(name) { const n = safeNode(name); if (!n) return ''; const j = n.json; if (typeof j === 'string') return j; if (j && typeof j.data === 'string') return j.data; return (j && j.json && typeof j.json.data === 'string') ? j.json.data : ''; }\n\nconst p = $json;\nawait ingest(p.campaign.id, 'agent_run', { agent: 'personalization', label: 'Personalized Email Generation', status: 'running', started_at: new Date().toISOString() });\nreturn [{ json: p }];\n"
+   },
+   "id": "1201c7cd-a520-4fc2-acf5-006ac55bff01",
+   "name": "Personalized Email Generation start",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    6880,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "jsCode": "const p = $json;\nreturn [{ json: { campaign: p.campaign, kb: p.kb, verified_contacts: p.verified_contacts, research: p.research } }];"
+   },
+   "id": "a7e01b13-da2f-4130-81ce-c100bc0389b0",
+   "name": "A7 Input",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    7080,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "source": "database",
+    "workflowId": {
+     "__rl": true,
+     "mode": "id",
+     "value": "__WFID:A7_EMAILS__"
+    },
+    "mode": "once",
+    "workflowInputs": {
+     "mappingMode": "defineBelow",
+     "value": null
+    },
+    "options": {}
+   },
+   "id": "8ee6b611-a868-4f38-95e7-a145403c64b6",
+   "name": "A7 Personalization",
+   "type": "n8n-nodes-base.executeWorkflow",
+   "typeVersion": 1.3,
+   "position": [
+    7280,
+    0
+   ],
+   "onError": "continueErrorOutput"
+  },
+  {
+   "parameters": {
+    "jsCode": "\n// ===== shared helpers (BDR agent) =====\nconst FA = 'http://127.0.0.1:8000';\nasync function ingest(campaign_id, type, payload, retries = 3) {\n  for (let i = 0; i < retries; i++) {\n    try {\n      await this.helpers.httpRequest({ method: 'POST', url: FA + '/api/ingest',\n        body: JSON.stringify({ campaign_id, type, payload }),\n        headers: { 'Content-Type': 'application/json' }, timeout: 15000 });\n      return { ok: true };\n    } catch (e) {\n      if (i === retries - 1) return { ok: false, error: String((e && e.message) || e) };\n      await new Promise(r => setTimeout(r, 1500));\n    }\n  }\n}\nasync function faGet(path, timeout = 30000) {\n  const resp = await this.helpers.httpRequest({ method: 'GET', url: FA + path, timeout });\n  if (typeof resp === 'string') { try { return JSON.parse(resp); } catch (e) { return resp; } }\n  return resp;\n}\nfunction parseJsonLoose(text) {\n  if (!text) return null;\n  let t = String(text).trim();\n  t = t.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();\n  const s = t.indexOf('{'); const e = t.lastIndexOf('}');\n  if (s === -1 || e === -1 || e <= s) return null;\n  try { return JSON.parse(t.slice(s, e + 1)); } catch (err) { return null; }\n}\nfunction htmlToText(html) {\n  if (!html) return '';\n  let h = String(html);\n  h = h.replace(/<script[^>]*>[\\s\\S]*?<\\/script>/gi, ' ');\n  h = h.replace(/<style[^>]*>[\\s\\S]*?<\\/style>/gi, ' ');\n  h = h.replace(/<nav[^>]*>[\\s\\S]*?<\\/nav>/gi, ' ');\n  h = h.replace(/<footer[^>]*>[\\s\\S]*?<\\/footer>/gi, ' ');\n  h = h.replace(/<(br|\\/p|\\/div|\\/h[1-6]|\\/li|\\/tr)[^>]*>/gi, '\\n');\n  h = h.replace(/<[^>]+>/g, ' ');\n  h = h.replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\");\n  h = h.replace(/[ \\t]+/g, ' ');\n  h = h.replace(/\\n\\s*\\n+/g, '\\n');\n  return h.trim();\n}\nfunction parseRss(xml) {\n  const out = [];\n  if (!xml) return out;\n  const items = String(xml).match(/<item>[\\s\\S]*?<\\/item>/g) || [];\n  const grab = (block, tag) => {\n    const m = block.match(new RegExp('<' + tag + '[^>]*>([\\\\s\\\\S]*?)</' + tag + '>', 'i'));\n    return m ? m[1].replace(/<!\\[CDATA\\[|\\]\\]>/g, '').trim() : '';\n  };\n  for (const it of items.slice(0, 12)) {\n    const title = grab(it, 'title').replace(/&amp;/g, '&').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\");\n    const link = grab(it, 'link');\n    const pub = grab(it, 'pubDate');\n    let desc = grab(it, 'description').replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\").replace(/\\s+/g, ' ').trim();\n    if (title && link) out.push({ title, url: link, snippet: desc.slice(0, 500), published: pub || null, source: 'Google News' });\n  }\n  return out;\n}\nfunction safeNode(name) { try { const h = $(name); const n = (h && h.first) ? h.first() : h; if (n && n.json !== undefined) return n; } catch (e) {} return null; }\nfunction outText(name) { const n = safeNode(name); if (!n) return ''; const j = n.json; if (typeof j === 'string') return j; if (j && typeof j.data === 'string') return j.data; return (j && j.json && typeof j.json.data === 'string') ? j.json.data : ''; }\n\nconst sub = $json;\nconst p0 = $('A7 Input').first().json;\nconst failed = !sub || sub.status === 'failed' || !sub.stage;\nawait ingest(p0.campaign.id, 'agent_run_end', {\n  agent: 'personalization',\n  status: failed ? 'failed' : 'done',\n  finished_at: new Date().toISOString(),\n  detail: JSON.stringify((sub && sub.counts) || (sub && sub.status) || (sub && sub.reason) || null).slice(0, 400),\n  error: failed ? String((sub && (sub.error || sub.message || sub.reason)) || 'sub-workflow execution error (see n8n executions)').slice(0, 400) : null\n});\nreturn [{ json: sub || { stage: 'personalization', status: 'failed', error: 'sub-workflow produced no output' } }];\n"
+   },
+   "id": "4aa64fab-1536-494e-b31e-463af210fcf6",
+   "name": "Personalized Email Generation end",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    7480,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "jsCode": "const sub = $json;\nconst ctx = $('A7 Input').first().json;\nconst r = { campaign: ctx.campaign, kb: ctx.kb || {} };\nr.icp = ctx.icp || null; r.candidates = ctx.candidates || []; r.qualified_accounts = ctx.qualified_accounts || []; r.contacts = ctx.contacts || []; r.verified_contacts = ctx.verified_contacts || []; r.research = ctx.research || []; r.emails = ctx.emails || [];\nr.emails = (sub.emails || []).length ? sub.emails : ctx.emails;\nreturn [{ json: r }];"
+   },
+   "id": "8999e29e-a874-4ebd-b16f-6effb622289b",
+   "name": "A7 Carry",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    7680,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "jsCode": "\n// ===== shared helpers (BDR agent) =====\nconst FA = 'http://127.0.0.1:8000';\nasync function ingest(campaign_id, type, payload, retries = 3) {\n  for (let i = 0; i < retries; i++) {\n    try {\n      await this.helpers.httpRequest({ method: 'POST', url: FA + '/api/ingest',\n        body: JSON.stringify({ campaign_id, type, payload }),\n        headers: { 'Content-Type': 'application/json' }, timeout: 15000 });\n      return { ok: true };\n    } catch (e) {\n      if (i === retries - 1) return { ok: false, error: String((e && e.message) || e) };\n      await new Promise(r => setTimeout(r, 1500));\n    }\n  }\n}\nasync function faGet(path, timeout = 30000) {\n  const resp = await this.helpers.httpRequest({ method: 'GET', url: FA + path, timeout });\n  if (typeof resp === 'string') { try { return JSON.parse(resp); } catch (e) { return resp; } }\n  return resp;\n}\nfunction parseJsonLoose(text) {\n  if (!text) return null;\n  let t = String(text).trim();\n  t = t.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();\n  const s = t.indexOf('{'); const e = t.lastIndexOf('}');\n  if (s === -1 || e === -1 || e <= s) return null;\n  try { return JSON.parse(t.slice(s, e + 1)); } catch (err) { return null; }\n}\nfunction htmlToText(html) {\n  if (!html) return '';\n  let h = String(html);\n  h = h.replace(/<script[^>]*>[\\s\\S]*?<\\/script>/gi, ' ');\n  h = h.replace(/<style[^>]*>[\\s\\S]*?<\\/style>/gi, ' ');\n  h = h.replace(/<nav[^>]*>[\\s\\S]*?<\\/nav>/gi, ' ');\n  h = h.replace(/<footer[^>]*>[\\s\\S]*?<\\/footer>/gi, ' ');\n  h = h.replace(/<(br|\\/p|\\/div|\\/h[1-6]|\\/li|\\/tr)[^>]*>/gi, '\\n');\n  h = h.replace(/<[^>]+>/g, ' ');\n  h = h.replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\");\n  h = h.replace(/[ \\t]+/g, ' ');\n  h = h.replace(/\\n\\s*\\n+/g, '\\n');\n  return h.trim();\n}\nfunction parseRss(xml) {\n  const out = [];\n  if (!xml) return out;\n  const items = String(xml).match(/<item>[\\s\\S]*?<\\/item>/g) || [];\n  const grab = (block, tag) => {\n    const m = block.match(new RegExp('<' + tag + '[^>]*>([\\\\s\\\\S]*?)</' + tag + '>', 'i'));\n    return m ? m[1].replace(/<!\\[CDATA\\[|\\]\\]>/g, '').trim() : '';\n  };\n  for (const it of items.slice(0, 12)) {\n    const title = grab(it, 'title').replace(/&amp;/g, '&').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\");\n    const link = grab(it, 'link');\n    const pub = grab(it, 'pubDate');\n    let desc = grab(it, 'description').replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\").replace(/\\s+/g, ' ').trim();\n    if (title && link) out.push({ title, url: link, snippet: desc.slice(0, 500), published: pub || null, source: 'Google News' });\n  }\n  return out;\n}\nfunction safeNode(name) { try { const h = $(name); const n = (h && h.first) ? h.first() : h; if (n && n.json !== undefined) return n; } catch (e) {} return null; }\nfunction outText(name) { const n = safeNode(name); if (!n) return ''; const j = n.json; if (typeof j === 'string') return j; if (j && typeof j.data === 'string') return j.data; return (j && j.json && typeof j.json.data === 'string') ? j.json.data : ''; }\n\nconst p = $json;\nawait ingest(p.campaign.id, 'agent_run', { agent: 'fact_checker', label: 'Fact Check + Rewrite', status: 'running', started_at: new Date().toISOString() });\nreturn [{ json: p }];\n"
+   },
+   "id": "7178f7f0-d064-4849-81f6-cea6ec3a3a94",
+   "name": "Fact Check + Rewrite start",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    7880,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "jsCode": "const p = $json;\nreturn [{ json: { campaign: p.campaign, emails: p.emails } }];"
+   },
+   "id": "813ee266-a356-4e82-841a-6012786cd243",
+   "name": "A8 Input",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    8080,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "source": "database",
+    "workflowId": {
+     "__rl": true,
+     "mode": "id",
+     "value": "__WFID:A8_FACT_CHECK__"
+    },
+    "mode": "once",
+    "workflowInputs": {
+     "mappingMode": "defineBelow",
+     "value": null
+    },
+    "options": {}
+   },
+   "id": "2b4619c3-cfcd-48e9-83c6-e8646d7fe9c8",
+   "name": "A8 Fact Checker",
+   "type": "n8n-nodes-base.executeWorkflow",
+   "typeVersion": 1.3,
+   "position": [
+    8280,
+    0
+   ],
+   "onError": "continueErrorOutput"
+  },
+  {
+   "parameters": {
+    "jsCode": "\n// ===== shared helpers (BDR agent) =====\nconst FA = 'http://127.0.0.1:8000';\nasync function ingest(campaign_id, type, payload, retries = 3) {\n  for (let i = 0; i < retries; i++) {\n    try {\n      await this.helpers.httpRequest({ method: 'POST', url: FA + '/api/ingest',\n        body: JSON.stringify({ campaign_id, type, payload }),\n        headers: { 'Content-Type': 'application/json' }, timeout: 15000 });\n      return { ok: true };\n    } catch (e) {\n      if (i === retries - 1) return { ok: false, error: String((e && e.message) || e) };\n      await new Promise(r => setTimeout(r, 1500));\n    }\n  }\n}\nasync function faGet(path, timeout = 30000) {\n  const resp = await this.helpers.httpRequest({ method: 'GET', url: FA + path, timeout });\n  if (typeof resp === 'string') { try { return JSON.parse(resp); } catch (e) { return resp; } }\n  return resp;\n}\nfunction parseJsonLoose(text) {\n  if (!text) return null;\n  let t = String(text).trim();\n  t = t.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();\n  const s = t.indexOf('{'); const e = t.lastIndexOf('}');\n  if (s === -1 || e === -1 || e <= s) return null;\n  try { return JSON.parse(t.slice(s, e + 1)); } catch (err) { return null; }\n}\nfunction htmlToText(html) {\n  if (!html) return '';\n  let h = String(html);\n  h = h.replace(/<script[^>]*>[\\s\\S]*?<\\/script>/gi, ' ');\n  h = h.replace(/<style[^>]*>[\\s\\S]*?<\\/style>/gi, ' ');\n  h = h.replace(/<nav[^>]*>[\\s\\S]*?<\\/nav>/gi, ' ');\n  h = h.replace(/<footer[^>]*>[\\s\\S]*?<\\/footer>/gi, ' ');\n  h = h.replace(/<(br|\\/p|\\/div|\\/h[1-6]|\\/li|\\/tr)[^>]*>/gi, '\\n');\n  h = h.replace(/<[^>]+>/g, ' ');\n  h = h.replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\");\n  h = h.replace(/[ \\t]+/g, ' ');\n  h = h.replace(/\\n\\s*\\n+/g, '\\n');\n  return h.trim();\n}\nfunction parseRss(xml) {\n  const out = [];\n  if (!xml) return out;\n  const items = String(xml).match(/<item>[\\s\\S]*?<\\/item>/g) || [];\n  const grab = (block, tag) => {\n    const m = block.match(new RegExp('<' + tag + '[^>]*>([\\\\s\\\\S]*?)</' + tag + '>', 'i'));\n    return m ? m[1].replace(/<!\\[CDATA\\[|\\]\\]>/g, '').trim() : '';\n  };\n  for (const it of items.slice(0, 12)) {\n    const title = grab(it, 'title').replace(/&amp;/g, '&').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\");\n    const link = grab(it, 'link');\n    const pub = grab(it, 'pubDate');\n    let desc = grab(it, 'description').replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\").replace(/\\s+/g, ' ').trim();\n    if (title && link) out.push({ title, url: link, snippet: desc.slice(0, 500), published: pub || null, source: 'Google News' });\n  }\n  return out;\n}\nfunction safeNode(name) { try { const h = $(name); const n = (h && h.first) ? h.first() : h; if (n && n.json !== undefined) return n; } catch (e) {} return null; }\nfunction outText(name) { const n = safeNode(name); if (!n) return ''; const j = n.json; if (typeof j === 'string') return j; if (j && typeof j.data === 'string') return j.data; return (j && j.json && typeof j.json.data === 'string') ? j.json.data : ''; }\n\nconst sub = $json;\nconst p0 = $('A8 Input').first().json;\nconst failed = !sub || sub.status === 'failed' || !sub.stage;\nawait ingest(p0.campaign.id, 'agent_run_end', {\n  agent: 'fact_checker',\n  status: failed ? 'failed' : 'done',\n  finished_at: new Date().toISOString(),\n  detail: JSON.stringify((sub && sub.counts) || (sub && sub.status) || (sub && sub.reason) || null).slice(0, 400),\n  error: failed ? String((sub && (sub.error || sub.message || sub.reason)) || 'sub-workflow execution error (see n8n executions)').slice(0, 400) : null\n});\nreturn [{ json: sub || { stage: 'fact_checker', status: 'failed', error: 'sub-workflow produced no output' } }];\n"
+   },
+   "id": "5b12b521-dff8-44d1-bc5c-14836187237c",
+   "name": "Fact Check + Rewrite end",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    8480,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "jsCode": "const sub = $json;\nconst ctx = $('A8 Input').first().json;\nconst r = { campaign: ctx.campaign, kb: ctx.kb || {} };\nr.icp = ctx.icp || null; r.candidates = ctx.candidates || []; r.qualified_accounts = ctx.qualified_accounts || []; r.contacts = ctx.contacts || []; r.verified_contacts = ctx.verified_contacts || []; r.research = ctx.research || []; r.emails = ctx.emails || [];\nr.final_emails = (sub.emails || []).length ? sub.emails : ctx.emails;\nreturn [{ json: r }];"
+   },
+   "id": "e76fb40d-cfb6-4e30-ad58-6fa2cede6c53",
+   "name": "A8 Carry",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    8680,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "jsCode": "\n// ===== shared helpers (BDR agent) =====\nconst FA = 'http://127.0.0.1:8000';\nasync function ingest(campaign_id, type, payload, retries = 3) {\n  for (let i = 0; i < retries; i++) {\n    try {\n      await this.helpers.httpRequest({ method: 'POST', url: FA + '/api/ingest',\n        body: JSON.stringify({ campaign_id, type, payload }),\n        headers: { 'Content-Type': 'application/json' }, timeout: 15000 });\n      return { ok: true };\n    } catch (e) {\n      if (i === retries - 1) return { ok: false, error: String((e && e.message) || e) };\n      await new Promise(r => setTimeout(r, 1500));\n    }\n  }\n}\nasync function faGet(path, timeout = 30000) {\n  const resp = await this.helpers.httpRequest({ method: 'GET', url: FA + path, timeout });\n  if (typeof resp === 'string') { try { return JSON.parse(resp); } catch (e) { return resp; } }\n  return resp;\n}\nfunction parseJsonLoose(text) {\n  if (!text) return null;\n  let t = String(text).trim();\n  t = t.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();\n  const s = t.indexOf('{'); const e = t.lastIndexOf('}');\n  if (s === -1 || e === -1 || e <= s) return null;\n  try { return JSON.parse(t.slice(s, e + 1)); } catch (err) { return null; }\n}\nfunction htmlToText(html) {\n  if (!html) return '';\n  let h = String(html);\n  h = h.replace(/<script[^>]*>[\\s\\S]*?<\\/script>/gi, ' ');\n  h = h.replace(/<style[^>]*>[\\s\\S]*?<\\/style>/gi, ' ');\n  h = h.replace(/<nav[^>]*>[\\s\\S]*?<\\/nav>/gi, ' ');\n  h = h.replace(/<footer[^>]*>[\\s\\S]*?<\\/footer>/gi, ' ');\n  h = h.replace(/<(br|\\/p|\\/div|\\/h[1-6]|\\/li|\\/tr)[^>]*>/gi, '\\n');\n  h = h.replace(/<[^>]+>/g, ' ');\n  h = h.replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\");\n  h = h.replace(/[ \\t]+/g, ' ');\n  h = h.replace(/\\n\\s*\\n+/g, '\\n');\n  return h.trim();\n}\nfunction parseRss(xml) {\n  const out = [];\n  if (!xml) return out;\n  const items = String(xml).match(/<item>[\\s\\S]*?<\\/item>/g) || [];\n  const grab = (block, tag) => {\n    const m = block.match(new RegExp('<' + tag + '[^>]*>([\\\\s\\\\S]*?)</' + tag + '>', 'i'));\n    return m ? m[1].replace(/<!\\[CDATA\\[|\\]\\]>/g, '').trim() : '';\n  };\n  for (const it of items.slice(0, 12)) {\n    const title = grab(it, 'title').replace(/&amp;/g, '&').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\");\n    const link = grab(it, 'link');\n    const pub = grab(it, 'pubDate');\n    let desc = grab(it, 'description').replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\").replace(/\\s+/g, ' ').trim();\n    if (title && link) out.push({ title, url: link, snippet: desc.slice(0, 500), published: pub || null, source: 'Google News' });\n  }\n  return out;\n}\nfunction safeNode(name) { try { const h = $(name); const n = (h && h.first) ? h.first() : h; if (n && n.json !== undefined) return n; } catch (e) {} return null; }\nfunction outText(name) { const n = safeNode(name); if (!n) return ''; const j = n.json; if (typeof j === 'string') return j; if (j && typeof j.data === 'string') return j.data; return (j && j.json && typeof j.json.data === 'string') ? j.json.data : ''; }\n\nconst ctx = $json;\nconst campaign = ctx.campaign;\nlet summary = {};\ntry { summary = await faGet('/api/summary?campaign_id=' + encodeURIComponent(campaign.id)); } catch (e) {}\nconst failed = (summary && Array.isArray(summary.failed_agents) && summary.failed_agents.length) || false;\nawait ingest(campaign.id, 'campaign_update', { match: { id: campaign.id }, patch: { status: failed ? 'completed_with_failures' : 'complete', summary } });\nreturn [{ json: { campaign_id: campaign.id, status: failed ? 'completed_with_failures' : 'complete', summary } }];\n"
+   },
+   "id": "ac12e0cf-9dce-46a3-a6cd-98db544c5f1d",
+   "name": "Finish",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    9080,
+    0
+   ]
+  },
+  {
+   "parameters": {},
+   "id": "9a32b6a8-a02d-41c8-9743-6438040da09e",
+   "name": "Done",
+   "type": "n8n-nodes-base.noOp",
+   "typeVersion": 1,
+   "position": [
+    9300,
+    0
+   ]
+  }
+ ],
+ "connections": {
+  "Webhook": {
+   "main": [
+    [
+     {
+      "node": "Init Campaign",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Init Campaign": {
+   "main": [
+    [
+     {
+      "node": "Start Run + Load KB",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Start Run + Load KB": {
+   "main": [
+    [
+     {
+      "node": "A0 Carry",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "A0 Carry": {
+   "main": [
+    [
+     {
+      "node": "ICP Intelligence (SQM fingerprint) start",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "ICP Intelligence (SQM fingerprint) start": {
+   "main": [
+    [
+     {
+      "node": "A1 Input",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "A1 Input": {
+   "main": [
+    [
+     {
+      "node": "A1 ICP Agent",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "A1 ICP Agent": {
+   "main": [
+    [
+     {
+      "node": "ICP Intelligence (SQM fingerprint) end",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "ICP Intelligence (SQM fingerprint) end",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "ICP Intelligence (SQM fingerprint) end": {
+   "main": [
+    [
+     {
+      "node": "A1 Carry",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "A1 Carry": {
+   "main": [
+    [
+     {
+      "node": "Account Discovery (seed + live search) start",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Account Discovery (seed + live search) start": {
+   "main": [
+    [
+     {
+      "node": "A2 Input",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "A2 Input": {
+   "main": [
+    [
+     {
+      "node": "A2 Account Discovery",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "A2 Account Discovery": {
+   "main": [
+    [
+     {
+      "node": "Account Discovery (seed + live search) end",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Account Discovery (seed + live search) end",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Account Discovery (seed + live search) end": {
+   "main": [
+    [
+     {
+      "node": "A2 Carry",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "A2 Carry": {
+   "main": [
+    [
+     {
+      "node": "Account Verification (ICP fit + evidence) start",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Account Verification (ICP fit + evidence) start": {
+   "main": [
+    [
+     {
+      "node": "A3 Input",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "A3 Input": {
+   "main": [
+    [
+     {
+      "node": "A3 Account Verification",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "A3 Account Verification": {
+   "main": [
+    [
+     {
+      "node": "Account Verification (ICP fit + evidence) end",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Account Verification (ICP fit + evidence) end",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Account Verification (ICP fit + evidence) end": {
+   "main": [
+    [
+     {
+      "node": "A3 Carry",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "A3 Carry": {
+   "main": [
+    [
+     {
+      "node": "Contact Discovery (target personas) start",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Contact Discovery (target personas) start": {
+   "main": [
+    [
+     {
+      "node": "A4 Input",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "A4 Input": {
+   "main": [
+    [
+     {
+      "node": "A4 Contact Discovery",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "A4 Contact Discovery": {
+   "main": [
+    [
+     {
+      "node": "Contact Discovery (target personas) end",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Contact Discovery (target personas) end",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Contact Discovery (target personas) end": {
+   "main": [
+    [
+     {
+      "node": "A4 Carry",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "A4 Carry": {
+   "main": [
+    [
+     {
+      "node": "Contact Verification (real + current) start",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Contact Verification (real + current) start": {
+   "main": [
+    [
+     {
+      "node": "A5 Input",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "A5 Input": {
+   "main": [
+    [
+     {
+      "node": "A5 Contact Verification",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "A5 Contact Verification": {
+   "main": [
+    [
+     {
+      "node": "Contact Verification (real + current) end",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Contact Verification (real + current) end",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Contact Verification (real + current) end": {
+   "main": [
+    [
+     {
+      "node": "A5 Carry",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "A5 Carry": {
+   "main": [
+    [
+     {
+      "node": "Deep Research (5 buckets) start",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Deep Research (5 buckets) start": {
+   "main": [
+    [
+     {
+      "node": "A6 Input",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "A6 Input": {
+   "main": [
+    [
+     {
+      "node": "A6 Deep Research",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "A6 Deep Research": {
+   "main": [
+    [
+     {
+      "node": "Deep Research (5 buckets) end",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Deep Research (5 buckets) end",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Deep Research (5 buckets) end": {
+   "main": [
+    [
+     {
+      "node": "A6 Carry",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "A6 Carry": {
+   "main": [
+    [
+     {
+      "node": "Personalized Email Generation start",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Personalized Email Generation start": {
+   "main": [
+    [
+     {
+      "node": "A7 Input",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "A7 Input": {
+   "main": [
+    [
+     {
+      "node": "A7 Personalization",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "A7 Personalization": {
+   "main": [
+    [
+     {
+      "node": "Personalized Email Generation end",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Personalized Email Generation end",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Personalized Email Generation end": {
+   "main": [
+    [
+     {
+      "node": "A7 Carry",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "A7 Carry": {
+   "main": [
+    [
+     {
+      "node": "Fact Check + Rewrite start",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Fact Check + Rewrite start": {
+   "main": [
+    [
+     {
+      "node": "A8 Input",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "A8 Input": {
+   "main": [
+    [
+     {
+      "node": "A8 Fact Checker",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "A8 Fact Checker": {
+   "main": [
+    [
+     {
+      "node": "Fact Check + Rewrite end",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Fact Check + Rewrite end",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Fact Check + Rewrite end": {
+   "main": [
+    [
+     {
+      "node": "A8 Carry",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "A8 Carry": {
+   "main": [
+    [
+     {
+      "node": "Finish",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Finish": {
+   "main": [
+    [
+     {
+      "node": "Done",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  }
+ },
+ "settings": {
+  "executionOrder": "v1"
+ },
+ "description": "Master orchestrator: webhook POST /webhook/master; runs the 8-agent pipeline sequentially and logs every agent run.",
+ "active": false
+}

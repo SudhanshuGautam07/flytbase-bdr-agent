@@ -1,0 +1,30 @@
+{
+  "description": "Cold-start candidate pool for the BDR agent. Real public companies in LatAm large-scale lithium/copper/iron-ore mining, used as the seed list for the Account Discovery agent (a BDR also starts from a seed list; the agent live-verifies every account against the ICP with evidence before it qualifies). The reference account (SQM) is excluded here and used only as the ICP anchor.",
+  "as_of": "2026-09",
+  "companies": [
+    {"name": "Codelco", "website": "https://www.codelcochile.com", "country": "Chile", "commodities": ["copper", "lithium"], "note": "Chile's state-owned copper producer; world's largest copper producer; large Atacama lithium operations"},
+    {"name": "Antofagasta PLC", "website": "https://www.antofagastaplc.com", "country": "Chile / Peru", "commodities": ["copper"], "note": "Large copper operations in Chile (Radomiro Tomic, Centenario, Sierra Gorda JV) and Peru (Cuajone, Volcan)"},
+    {"name": "BHP", "website": "https://www.bhp.com", "country": "Chile", "commodities": ["copper"], "note": "Operates the world's largest copper mine (Escondida) plus Spence and Salvador in Chile"},
+    {"name": "Southern Copper Corporation", "website": "https://www.southerncopper.com", "country": "Peru / Chile", "commodities": ["copper"], "note": "One of the world's largest integrated copper producers (Toquepala, Ilo, Carajás)"},
+    {"name": "Glencore", "website": "https://www.glencore.com", "country": "Chile / Peru / Brazil", "commodities": ["copper", "iron ore"], "note": "Collahuasi (Chile, among world's largest copper mines), El Abra, and iron ore operations in Brazil (Samarco JV)"},
+    {"name": "Anglo American", "website": "https://www.angloamerican.com", "country": "Chile / Peru / Brazil", "commodities": ["copper", "iron ore"], "note": "El Teniente, Spence (JV), Las Bambas (JV) in Peru, and iron ore (Anglo American Sur) in Brazil"},
+    {"name": "Lundin Mining", "website": "https://www.lundinmining.com", "country": "Chile / Peru", "commodities": ["copper"], "note": "Copper Creek / San Jose (Chile) and Buenavista del Cobre (JV, Peru)"},
+    {"name": "Teck Resources", "website": "https://www.teck.com", "country": "Chile / Peru", "commodities": ["copper"], "note": "Candelaria (JV, Chile) — one of Chile's largest copper mines — plus Quebrada Blanca (JV, Chile)"},
+    {"name": "Freeport-McMoRan", "website": "https://www.freeport.com", "country": "Peru", "commodities": ["copper", "gold"], "note": "Cerro de Pasco (Peru), one of the world's largest and highest-altitude copper operations"},
+    {"name": "Antapaccina", "website": "https://www.antapaccina.com", "country": "Peru", "commodities": ["copper"], "note": "Large copper producer in Peru (Antapaccina mine)"},
+    {"name": "First Quantum Minerals", "website": "https://www.firstquantum.com", "country": "Peru", "commodities": ["copper"], "note": "Las Bambas (JV with Minmetals), one of the world's largest copper projects in Peru"},
+    {"name": "Albemarle Corporation", "website": "https://www.albemarle.com", "country": "Argentina / Chile", "commodities": ["lithium"], "note": "One of the world's largest lithium producers; Cauchari-Olaroz (Argentina) and Salar de Atacama (JV, Chile)"},
+    {"name": "Rio Tinto", "website": "https://www.riotinto.com", "country": "Argentina", "commodities": ["lithium", "copper"], "note": "Stake in Cauchari-Olaroz (Argentina) and Salar de Olaroz lithium developments"},
+    {"name": "FMC Corporation", "website": "https://www.fmc.com", "country": "Argentina / Chile", "commodities": ["lithium"], "note": "Large lithium producer with Salar de Marías and Hombre Muerto operations (Argentina)"},
+    {"name": "Ganfeng Lithium", "website": "https://www.gfhl.com", "country": "Argentina", "commodities": ["lithium"], "note": "Mariana project (JV with CNGR) and other large Lithium Triangle developments (Argentina)"},
+    {"name": "Livent", "website": "https://www.livent.com", "country": "Chile / Argentina", "commodities": ["lithium"], "note": "Salar del Hombre Muerto and Salar de Hombre Muerto developments (Chile); global lithium chloride leader"},
+    {"name": "Arcadium Lithium", "website": "https://arcadiumlithium.com", "country": "Chile", "commodities": ["lithium"], "note": "Salar de Atacama (JV with SQM), one of the world's largest lithium brine operations"},
+    {"name": "Allkem", "website": "https://allkem.com", "country": "Argentina", "commodities": ["lithium"], "note": "Bruma (JV) and Centenario (JV) in Argentina's Lithium Triangle"},
+    {"name": "Vale S.A.", "website": "https://www.vale.com", "country": "Brazil", "commodities": ["iron ore"], "note": "World's largest iron ore producer; massive Carajás and S11D operations (Brazil)"},
+    {"name": "CSN Mineração", "website": "https://www.csn.com.br", "country": "Brazil", "commodities": ["iron ore"], "note": "Large iron ore producer (Serra Verde, Carajás stake context) in Brazil"},
+    {"name": "Barrick Mining", "website": "https://www.barrick.com", "country": "Argentina", "commodities": ["copper", "gold"], "note": "Argenta project (Argentina), large copper-gold development in the Andes"},
+    {"name": "Penoles S.A.B.", "website": "https://www.penoles.com", "country": "Mexico", "commodities": ["copper", "silver"], "note": "Mexico's leading miner (Peñasquito, La Caridad, San José) — large-scale, 24/7 underground operations"},
+    {"name": "Cerradon", "website": "https://www.cerradon.com", "country": "Argentina", "commodities": ["lithium"], "note": "Mid-scale lithium producer in Argentina (Tres Quebradas, La Negra, Cauchari-Olaroz JV context)"},
+    {"name": "Foscor", "website": "https://www.foscor.com", "country": "Chile / Argentina", "commodities": ["lithium"], "note": "Lithium developer/producer with Salar de Atacama and Argentina assets"}
+  ]
+}

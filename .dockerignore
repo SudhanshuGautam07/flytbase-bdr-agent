@@ -1,0 +1,10 @@
+.git
+.env
+data
+vendor
+render_workflows
+workflows/ids.json
+__pycache__
+*.pyc
+node_modules
+*.log

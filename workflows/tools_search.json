@@ -1,0 +1,505 @@
+{
+ "name": "BDR :: TOOLS_search",
+ "nodes": [
+  {
+   "parameters": {
+    "inputSource": "passthrough"
+   },
+   "id": "4dd5eb7e-37aa-4984-ac0c-fa98fbe1e1c9",
+   "name": "Trigger",
+   "type": "n8n-nodes-base.executeWorkflowTrigger",
+   "typeVersion": 1.2,
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "rules": {
+     "values": [
+      {
+       "renameOutput": true,
+       "outputKey": "brave",
+       "conditions": {
+        "options": {
+         "caseSensitive": true,
+         "leftValue": "",
+         "typeValidation": "loose"
+        },
+        "conditions": [
+         {
+          "id": "e262d2d1-b69c-4c80-b873-354a3bdd7557",
+          "leftValue": "={{ $env.BRAVE_API_KEY ? 'brave' : ($env.SERPER_API_KEY ? 'serper' : ($env.TAVILY_API_KEY ? 'tavily' : 'rss')) }}",
+          "rightValue": "brave",
+          "operator": {
+           "type": "string",
+           "operation": "equals"
+          }
+         }
+        ],
+        "combinator": "and"
+       }
+      },
+      {
+       "renameOutput": true,
+       "outputKey": "serper",
+       "conditions": {
+        "options": {
+         "caseSensitive": true,
+         "leftValue": "",
+         "typeValidation": "loose"
+        },
+        "conditions": [
+         {
+          "id": "de4cd8d4-3a37-4483-b91a-7dec4ccf9bab",
+          "leftValue": "={{ $env.BRAVE_API_KEY ? 'brave' : ($env.SERPER_API_KEY ? 'serper' : ($env.TAVILY_API_KEY ? 'tavily' : 'rss')) }}",
+          "rightValue": "serper",
+          "operator": {
+           "type": "string",
+           "operation": "equals"
+          }
+         }
+        ],
+        "combinator": "and"
+       }
+      },
+      {
+       "renameOutput": true,
+       "outputKey": "tavily",
+       "conditions": {
+        "options": {
+         "caseSensitive": true,
+         "leftValue": "",
+         "typeValidation": "loose"
+        },
+        "conditions": [
+         {
+          "id": "33fc1eba-2185-4ace-8bb0-0b73f0ddfbd7",
+          "leftValue": "={{ $env.BRAVE_API_KEY ? 'brave' : ($env.SERPER_API_KEY ? 'serper' : ($env.TAVILY_API_KEY ? 'tavily' : 'rss')) }}",
+          "rightValue": "tavily",
+          "operator": {
+           "type": "string",
+           "operation": "equals"
+          }
+         }
+        ],
+        "combinator": "and"
+       }
+      },
+      {
+       "renameOutput": true,
+       "outputKey": "rss",
+       "conditions": {
+        "options": {
+         "caseSensitive": true,
+         "leftValue": "",
+         "typeValidation": "loose"
+        },
+        "conditions": [
+         {
+          "id": "82db7d30-6310-46a4-9ba2-ffa4a9932371",
+          "leftValue": "={{ $env.BRAVE_API_KEY ? 'brave' : ($env.SERPER_API_KEY ? 'serper' : ($env.TAVILY_API_KEY ? 'tavily' : 'rss')) }}",
+          "rightValue": "rss",
+          "operator": {
+           "type": "string",
+           "operation": "equals"
+          }
+         }
+        ],
+        "combinator": "and"
+       }
+      }
+     ]
+    },
+    "options": {}
+   },
+   "id": "d7d2124c-dd27-45cf-996a-e1d3b78c8847",
+   "name": "Provider",
+   "type": "n8n-nodes-base.switch",
+   "typeVersion": 3,
+   "position": [
+    220,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "url": "={{ 'https://api.search.brave.com/res/v1/web/search?q=' + encodeURIComponent($json.query) + '&count=' + ($json.num || 8) + '&search_lang=en' }}",
+    "method": "GET",
+    "options": {
+     "timeout": 20000
+    },
+    "sendHeaders": true,
+    "headerParameters": {
+     "parameters": [
+      {
+       "name": "Accept",
+       "value": "application/json"
+      },
+      {
+       "name": "X-Subscription-Token",
+       "value": "={{ $env.BRAVE_API_KEY }}"
+      }
+     ]
+    }
+   },
+   "id": "e96898ef-0608-40a5-a5d9-5f06154bc2d1",
+   "name": "Brave HTTP",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    440,
+    -300
+   ],
+   "onError": "continueErrorOutput"
+  },
+  {
+   "parameters": {
+    "jsCode": "\nconst r = $json || {};\nlet results = [];\nconst web = Array.isArray(r.web) ? r.web : (Array.isArray(r.results) ? r.results : []);\nfor (const it of web.slice(0, 8)) results.push({ title: it.title || '', url: it.url || it.link || '', snippet: (it.description || '').slice(0, 500), published: it.page_age_raw || null, source: 'Brave Web' });\nreturn [{ json: { provider: 'brave', results } }];\n"
+   },
+   "id": "fb1f2172-62b8-4acb-9e41-dad64c144098",
+   "name": "Brave Parse",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    660,
+    -300
+   ]
+  },
+  {
+   "parameters": {
+    "url": "https://google.serper.dev/search",
+    "method": "POST",
+    "options": {
+     "timeout": 20000
+    },
+    "sendHeaders": true,
+    "headerParameters": {
+     "parameters": [
+      {
+       "name": "X-API-KEY",
+       "value": "={{ String($env.SERPER_API_KEY || '') }}"
+      },
+      {
+       "name": "Content-Type",
+       "value": "application/json"
+      }
+     ]
+    },
+    "sendBody": true,
+    "specifyBody": "json",
+    "jsonBody": "={{ JSON.stringify({ q: $json.query, num: $json.num || 8 }) }}"
+   },
+   "id": "556fc219-1008-43ec-afb3-76af3e0bed70",
+   "name": "Serper HTTP",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    440,
+    -100
+   ],
+   "onError": "continueErrorOutput"
+  },
+  {
+   "parameters": {
+    "jsCode": "\nconst r = $json || {};\nlet results = [];\nif (Array.isArray(r.organic)) for (const it of r.organic.slice(0, 8)) results.push({ title: it.title || '', url: it.link || '', snippet: (it.snippet || '').slice(0, 500), published: it.date || null, source: 'Serper (Google)' });\nreturn [{ json: { provider: 'serper', results } }];\n"
+   },
+   "id": "aa30fc96-7980-4aa6-b395-8d7d4b62300a",
+   "name": "Serper Parse",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    660,
+    -100
+   ]
+  },
+  {
+   "parameters": {
+    "url": "https://api.tavily.com/search",
+    "method": "POST",
+    "options": {
+     "timeout": 20000
+    },
+    "sendHeaders": true,
+    "headerParameters": {
+     "parameters": [
+      {
+       "name": "Authorization",
+       "value": "={{ 'Bearer ' + String($env.TAVILY_API_KEY || '') }}"
+      },
+      {
+       "name": "Content-Type",
+       "value": "application/json"
+      }
+     ]
+    },
+    "sendBody": true,
+    "specifyBody": "json",
+    "jsonBody": "={{ JSON.stringify({ query: $json.query, max_results: $json.num || 8, include_answer: false }) }}"
+   },
+   "id": "dbb2e3c6-b6b1-4831-ae37-7631da733029",
+   "name": "Tavily HTTP",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    440,
+    100
+   ],
+   "onError": "continueErrorOutput"
+  },
+  {
+   "parameters": {
+    "jsCode": "\nconst r = $json || {};\nlet results = [];\nif (Array.isArray(r.results)) for (const it of r.results.slice(0, 8)) results.push({ title: it.title || '', url: it.url || '', snippet: (it.content || '').slice(0, 500), published: it.published_date || null, source: 'Tavily' });\nreturn [{ json: { provider: 'tavily', results } }];\n"
+   },
+   "id": "0b9f1f56-2668-4991-92d1-350bdbbf3e5b",
+   "name": "Tavily Parse",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    660,
+    100
+   ]
+  },
+  {
+   "parameters": {
+    "url": "={{ 'https://news.google.com/rss/search?q=' + encodeURIComponent($json.query) + '&hl=en-US&gl=US&ceid=US:en' }}",
+    "method": "GET",
+    "options": {
+     "timeout": 20000,
+     "response": {
+      "response": {
+       "responseFormat": "text",
+       "outputPropertyName": "data"
+      }
+     }
+    }
+   },
+   "id": "2515128d-9598-4ffb-b5a7-0f0fb4b349ad",
+   "name": "News RSS HTTP",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    440,
+    300
+   ],
+   "onError": "continueErrorOutput"
+  },
+  {
+   "parameters": {
+    "jsCode": "\n// ===== shared helpers (BDR agent) =====\nconst FA = 'http://127.0.0.1:8000';\nasync function ingest(campaign_id, type, payload, retries = 3) {\n  for (let i = 0; i < retries; i++) {\n    try {\n      await this.helpers.httpRequest({ method: 'POST', url: FA + '/api/ingest',\n        body: JSON.stringify({ campaign_id, type, payload }),\n        headers: { 'Content-Type': 'application/json' }, timeout: 15000 });\n      return { ok: true };\n    } catch (e) {\n      if (i === retries - 1) return { ok: false, error: String((e && e.message) || e) };\n      await new Promise(r => setTimeout(r, 1500));\n    }\n  }\n}\nasync function faGet(path, timeout = 30000) {\n  const resp = await this.helpers.httpRequest({ method: 'GET', url: FA + path, timeout });\n  if (typeof resp === 'string') { try { return JSON.parse(resp); } catch (e) { return resp; } }\n  return resp;\n}\nfunction parseJsonLoose(text) {\n  if (!text) return null;\n  let t = String(text).trim();\n  t = t.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();\n  const s = t.indexOf('{'); const e = t.lastIndexOf('}');\n  if (s === -1 || e === -1 || e <= s) return null;\n  try { return JSON.parse(t.slice(s, e + 1)); } catch (err) { return null; }\n}\nfunction htmlToText(html) {\n  if (!html) return '';\n  let h = String(html);\n  h = h.replace(/<script[^>]*>[\\s\\S]*?<\\/script>/gi, ' ');\n  h = h.replace(/<style[^>]*>[\\s\\S]*?<\\/style>/gi, ' ');\n  h = h.replace(/<nav[^>]*>[\\s\\S]*?<\\/nav>/gi, ' ');\n  h = h.replace(/<footer[^>]*>[\\s\\S]*?<\\/footer>/gi, ' ');\n  h = h.replace(/<(br|\\/p|\\/div|\\/h[1-6]|\\/li|\\/tr)[^>]*>/gi, '\\n');\n  h = h.replace(/<[^>]+>/g, ' ');\n  h = h.replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\");\n  h = h.replace(/[ \\t]+/g, ' ');\n  h = h.replace(/\\n\\s*\\n+/g, '\\n');\n  return h.trim();\n}\nfunction parseRss(xml) {\n  const out = [];\n  if (!xml) return out;\n  const items = String(xml).match(/<item>[\\s\\S]*?<\\/item>/g) || [];\n  const grab = (block, tag) => {\n    const m = block.match(new RegExp('<' + tag + '[^>]*>([\\\\s\\\\S]*?)</' + tag + '>', 'i'));\n    return m ? m[1].replace(/<!\\[CDATA\\[|\\]\\]>/g, '').trim() : '';\n  };\n  for (const it of items.slice(0, 12)) {\n    const title = grab(it, 'title').replace(/&amp;/g, '&').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\");\n    const link = grab(it, 'link');\n    const pub = grab(it, 'pubDate');\n    let desc = grab(it, 'description').replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\").replace(/\\s+/g, ' ').trim();\n    if (title && link) out.push({ title, url: link, snippet: desc.slice(0, 500), published: pub || null, source: 'Google News' });\n  }\n  return out;\n}\nfunction safeNode(name) { try { const h = $(name); const n = (h && h.first) ? h.first() : h; if (n && n.json !== undefined) return n; } catch (e) {} return null; }\nfunction outText(name) { const n = safeNode(name); if (!n) return ''; const j = n.json; if (typeof j === 'string') return j; if (j && typeof j.data === 'string') return j.data; return (j && j.json && typeof j.json.data === 'string') ? j.json.data : ''; }\n\nconst xml = (typeof $json.data === 'string' ? $json.data : '') || outText('News RSS HTTP') || (typeof $json === 'string' ? $json : '');\nconst results = parseRss(xml);\nreturn [{ json: { provider: 'google-news-rss', results } }];\n"
+   },
+   "id": "48b630ef-e36f-47d9-9ed3-630e8aa9f270",
+   "name": "RSS Parse",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    660,
+    300
+   ]
+  },
+  {
+   "parameters": {
+    "jsCode": "\nconst err = ($json && $json.error) ? (typeof $json.error === 'string' ? $json.error : ($json.error.message || JSON.stringify($json.error))) : 'unknown error';\nreturn [{ json: { provider: 'error', results: [], error: String(err).slice(0, 300) } }];\n"
+   },
+   "id": "bcd37dd9-7f2e-47d5-898f-9f3781ae54a6",
+   "name": "Search Fail",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    660,
+    500
+   ]
+  },
+  {
+   "parameters": {
+    "jsCode": "\nconst j = $json;\nconst t = $('Trigger').first().json;\nreturn [{ json: { query: t.query || null, provider: j.provider || 'unknown', results: Array.isArray(j.results) ? j.results : [], error: j.error || null } }];\n"
+   },
+   "id": "a919a6d9-21c1-4e85-ac94-b8d18076274c",
+   "name": "Out",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    900,
+    0
+   ]
+  }
+ ],
+ "connections": {
+  "Trigger": {
+   "main": [
+    [
+     {
+      "node": "Provider",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Provider": {
+   "main": [
+    [
+     {
+      "node": "Brave HTTP",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Serper HTTP",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Tavily HTTP",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "News RSS HTTP",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Brave HTTP": {
+   "main": [
+    [
+     {
+      "node": "Brave Parse",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Search Fail",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Serper HTTP": {
+   "main": [
+    [
+     {
+      "node": "Serper Parse",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Search Fail",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Tavily HTTP": {
+   "main": [
+    [
+     {
+      "node": "Tavily Parse",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Search Fail",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "News RSS HTTP": {
+   "main": [
+    [
+     {
+      "node": "RSS Parse",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Search Fail",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Brave Parse": {
+   "main": [
+    [
+     {
+      "node": "Out",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Serper Parse": {
+   "main": [
+    [
+     {
+      "node": "Out",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Tavily Parse": {
+   "main": [
+    [
+     {
+      "node": "Out",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "RSS Parse": {
+   "main": [
+    [
+     {
+      "node": "Out",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Search Fail": {
+   "main": [
+    [
+     {
+      "node": "Out",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  }
+ },
+ "settings": {
+  "executionOrder": "v1"
+ },
+ "description": "Tool: multi-provider web search. In: {query, num}. Out: {query, provider, results[], error?}.",
+ "active": false
+}

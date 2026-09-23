@@ -1,0 +1,113 @@
+{
+ "name": "BDR :: TOOLS_fetch_page",
+ "nodes": [
+  {
+   "parameters": {
+    "inputSource": "passthrough"
+   },
+   "id": "5e9df210-013a-4301-9c36-45b720053c37",
+   "name": "Trigger",
+   "type": "n8n-nodes-base.executeWorkflowTrigger",
+   "typeVersion": 1.2,
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "url": "={{ $json.url }}",
+    "method": "GET",
+    "options": {
+     "timeout": 25000,
+     "response": {
+      "response": {
+       "responseFormat": "text",
+       "outputPropertyName": "data"
+      }
+     }
+    },
+    "sendHeaders": true,
+    "headerParameters": {
+     "parameters": [
+      {
+       "name": "User-Agent",
+       "value": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/126.0"
+      }
+     ]
+    }
+   },
+   "id": "0756f2d4-e1eb-4db9-8134-e8116fd3c4aa",
+   "name": "Fetch",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    220,
+    0
+   ],
+   "onError": "continueErrorOutput"
+  },
+  {
+   "parameters": {
+    "jsCode": "\n// ===== shared helpers (BDR agent) =====\nconst FA = 'http://127.0.0.1:8000';\nasync function ingest(campaign_id, type, payload, retries = 3) {\n  for (let i = 0; i < retries; i++) {\n    try {\n      await this.helpers.httpRequest({ method: 'POST', url: FA + '/api/ingest',\n        body: JSON.stringify({ campaign_id, type, payload }),\n        headers: { 'Content-Type': 'application/json' }, timeout: 15000 });\n      return { ok: true };\n    } catch (e) {\n      if (i === retries - 1) return { ok: false, error: String((e && e.message) || e) };\n      await new Promise(r => setTimeout(r, 1500));\n    }\n  }\n}\nasync function faGet(path, timeout = 30000) {\n  const resp = await this.helpers.httpRequest({ method: 'GET', url: FA + path, timeout });\n  if (typeof resp === 'string') { try { return JSON.parse(resp); } catch (e) { return resp; } }\n  return resp;\n}\nfunction parseJsonLoose(text) {\n  if (!text) return null;\n  let t = String(text).trim();\n  t = t.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();\n  const s = t.indexOf('{'); const e = t.lastIndexOf('}');\n  if (s === -1 || e === -1 || e <= s) return null;\n  try { return JSON.parse(t.slice(s, e + 1)); } catch (err) { return null; }\n}\nfunction htmlToText(html) {\n  if (!html) return '';\n  let h = String(html);\n  h = h.replace(/<script[^>]*>[\\s\\S]*?<\\/script>/gi, ' ');\n  h = h.replace(/<style[^>]*>[\\s\\S]*?<\\/style>/gi, ' ');\n  h = h.replace(/<nav[^>]*>[\\s\\S]*?<\\/nav>/gi, ' ');\n  h = h.replace(/<footer[^>]*>[\\s\\S]*?<\\/footer>/gi, ' ');\n  h = h.replace(/<(br|\\/p|\\/div|\\/h[1-6]|\\/li|\\/tr)[^>]*>/gi, '\\n');\n  h = h.replace(/<[^>]+>/g, ' ');\n  h = h.replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\");\n  h = h.replace(/[ \\t]+/g, ' ');\n  h = h.replace(/\\n\\s*\\n+/g, '\\n');\n  return h.trim();\n}\nfunction parseRss(xml) {\n  const out = [];\n  if (!xml) return out;\n  const items = String(xml).match(/<item>[\\s\\S]*?<\\/item>/g) || [];\n  const grab = (block, tag) => {\n    const m = block.match(new RegExp('<' + tag + '[^>]*>([\\\\s\\\\S]*?)</' + tag + '>', 'i'));\n    return m ? m[1].replace(/<!\\[CDATA\\[|\\]\\]>/g, '').trim() : '';\n  };\n  for (const it of items.slice(0, 12)) {\n    const title = grab(it, 'title').replace(/&amp;/g, '&').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\");\n    const link = grab(it, 'link');\n    const pub = grab(it, 'pubDate');\n    let desc = grab(it, 'description').replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\").replace(/\\s+/g, ' ').trim();\n    if (title && link) out.push({ title, url: link, snippet: desc.slice(0, 500), published: pub || null, source: 'Google News' });\n  }\n  return out;\n}\nfunction safeNode(name) { try { const h = $(name); const n = (h && h.first) ? h.first() : h; if (n && n.json !== undefined) return n; } catch (e) {} return null; }\nfunction outText(name) { const n = safeNode(name); if (!n) return ''; const j = n.json; if (typeof j === 'string') return j; if (j && typeof j.data === 'string') return j.data; return (j && j.json && typeof j.json.data === 'string') ? j.json.data : ''; }\n\nconst t = $('Trigger').first().json;\nconst raw = (typeof $json.data === 'string' ? $json.data : '') || outText('Fetch') || (typeof $json === 'string' ? $json : '');\nconst text = htmlToText(raw).slice(0, t.max_chars || 15000);\nreturn [{ json: { url: t.url, ok: !!text, status: text ? 'ok' : 'empty', text } }];\n"
+   },
+   "id": "dd8fb808-cc43-43de-ac5a-5d20d8755296",
+   "name": "Parse",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    440,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "jsCode": "\nconst t = $('Trigger').first().json;\nreturn [{ json: { url: t.url, ok: false, status: 'error', text: '' } }];\n"
+   },
+   "id": "311cc729-20f6-4fce-8d33-9a6d68ce2f3a",
+   "name": "Fail",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    440,
+    220
+   ]
+  }
+ ],
+ "connections": {
+  "Trigger": {
+   "main": [
+    [
+     {
+      "node": "Fetch",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Fetch": {
+   "main": [
+    [
+     {
+      "node": "Parse",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Fail",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  }
+ },
+ "settings": {
+  "executionOrder": "v1"
+ },
+ "description": "Tool: fetch a URL, return clean text. In: {url, max_chars?}. Out: {url, ok, status, text}.",
+ "active": false
+}

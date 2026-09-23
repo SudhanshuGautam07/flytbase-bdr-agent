@@ -1,0 +1,70 @@
+{
+  "company": "FlytBase",
+  "positioning": "Global category leader in Physical AI for large industrial sites",
+  "platform": "Mission-critical autonomous drone operations platform",
+  "scale": {
+    "enterprise_sites": "300+",
+    "countries": "40+",
+    "note": "Powers autonomous operations across large, complex industrial sites"
+  },
+  "customers_all": [
+    "Shell",
+    "CSX",
+    "UK Police",
+    "Airbus",
+    "Anglo American",
+    "Dole",
+    "Statnett"
+  ],
+  "customers_referenceable_in_outreach": [
+    "Shell",
+    "Anglo American",
+    "CSX"
+  ],
+  "referenceable_customer_context": {
+    "Shell": "Energy and refining — hazardous process infrastructure, large remote sites, safety-critical inspections at scale",
+    "Anglo American": "Mining — large-scale extraction operations, industrial safety and inspection demands directly comparable to LatAm mining accounts",
+    "CSX": "Heavy rail and industrial logistics — 24/7 operations, vast linear and site infrastructure requiring continuous inspection"
+  },
+  "flytbase_angle": {
+    "core": "Autonomous drone inspection replacing contracted inspection crews",
+    "target_context": "Hazardous, 24/7 extraction sites in mining",
+    "value_pillars": [
+      "Replace contracted crews on dangerous inspection tasks with autonomous drone missions",
+      "Continuous (24/7) inspection coverage instead of periodic manual crews",
+      "Remove personnel from high-risk environments (pit walls, tailings, haul roads, elevated infrastructure)",
+      "Consistent, repeatable inspection data with full mission records for compliance",
+      "Lower per-inspection cost at scale across multiple sites"
+    ],
+    "mine_inspection_use_cases": [
+      "Pit wall and highwall stability inspection",
+      "Tailings dam and storage facility monitoring",
+      "Haul road and access road condition surveys",
+      "Structural inspection of processing plants, crushers and elevated infrastructure",
+      "Perimeter and site security sweeps",
+      "Pre- and post-event inspection after incidents or weather events"
+    ]
+  },
+  "icp_context": {
+    "target_vertical": "Large-scale lithium, copper, and iron ore mining operations in Latin America",
+    "reference_account": "Sociedad Química y Minera de Chile (SQM)",
+    "goal": "Book discovery calls with Head of Operations, VP of HSE, or Site Directors at similar companies",
+    "qualifying_signals": [
+      "Large-scale extraction operations (single or multiple large sites)",
+      "24/7 continuous operations",
+      "Hazardous environments requiring contracted inspection crews",
+      "Lithium, copper, or iron ore focus",
+      "Latin America geography (Chile, Argentina, Peru, Brazil, Mexico)",
+      "Expansion, new assets, or technology investment signals"
+    ]
+  },
+  "email_tone_guidelines": [
+    "Sound like a human BDR who studied the account, not a marketing tool",
+    "Open with a specific, verifiable observation about the account's operations or recent news",
+    "Connect the observation to an operational pain in the recipient's lane (operations safety, HSE risk, inspection workload)",
+    "Introduce FlytBase's angle briefly: autonomous drone inspection replacing contracted crews at hazardous 24/7 sites",
+    "Reference a FlytBase customer (Shell / Anglo American / CSX) only where it genuinely strengthens the framing (e.g., Anglo American for mining peers)",
+    "End with a low-friction CTA (a short call, not a commitment)",
+    "No {placeholder} tokens, no generic industry platitudes, no fabricated facts"
+  ]
+}

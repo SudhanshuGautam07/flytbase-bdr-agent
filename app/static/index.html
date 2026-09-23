@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BDR Intelligence Agent — FlytBase Outbound</title>
+<style>
+:root{
+  --bg:#0b1020; --panel:#11172b; --panel2:#0e1426; --line:#1f2a44;
+  --txt:#e8ecf7; --mut:#8b96b3; --acc:#4f8cff; --ok:#2fd07a; --warn:#ffb454; --err:#ff5d6c;
+  --mono:'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:radial-gradient(circle at 80% -10%,rgba(79,140,255,.16),transparent 30%),var(--bg);color:var(--txt);font:14px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;padding:0 22px 28px}
+.topbar{height:66px;max-width:1500px;margin:auto;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid rgba(255,255,255,.06)}
+.brand{display:flex;align-items:center;gap:10px;font-weight:800;letter-spacing:.2px}.brandmark{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;background:linear-gradient(135deg,#4f8cff,#7d5cff);box-shadow:0 8px 24px rgba(79,140,255,.35)}
+.navlinks{display:flex;gap:22px;color:var(--mut);font-size:12px}.navlinks a{color:inherit}.live-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 5px rgba(47,208,122,.1);margin-right:7px}
+.hero{position:relative;overflow:hidden;background:linear-gradient(135deg,rgba(79,140,255,.14),rgba(125,92,255,.08) 50%,rgba(47,208,122,.05));border:1px solid rgba(99,150,255,.26);border-radius:14px;padding:28px;margin-bottom:16px}.hero:after{content:'';position:absolute;width:260px;height:260px;border-radius:50%;right:-100px;top:-150px;background:rgba(79,140,255,.1);filter:blur(2px)}
+.eyebrow{color:#7babff;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:1.6px;margin-bottom:8px}.hero h1{font-size:28px;max-width:700px;line-height:1.17;margin-bottom:10px}.hero p{max-width:760px;color:#aab5d2;font-size:14px}.hero-stats{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}.hero-stat{padding:7px 10px;border:1px solid rgba(255,255,255,.1);border-radius:8px;background:rgba(8,13,27,.35);font-size:11px;color:#b8c2db}.hero-stat b{color:#fff}
+.pipeline{display:grid;grid-template-columns:repeat(8,1fr);gap:6px;margin-top:18px}.stage{position:relative;background:rgba(9,14,28,.62);border:1px solid rgba(255,255,255,.09);border-radius:8px;padding:8px;text-align:center}.stage .num{font:700 10px var(--mono);color:#7babff}.stage .name{font-size:10px;color:#bac4dc;margin-top:3px}.stage:not(:last-child):after{content:'›';position:absolute;right:-7px;top:14px;color:#53627f;z-index:2}
+h1{font-size:19px;font-weight:700;letter-spacing:.2px}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:1.2px;color:var(--mut);margin-bottom:10px}
+.sub{color:var(--mut);font-size:12.5px;margin-top:4px}
+.grid{display:grid;grid-template-columns:340px 1fr;gap:16px;max-width:1500px;margin:0 auto}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+label{display:block;font-size:11.5px;color:var(--mut);margin:10px 0 4px;text-transform:uppercase;letter-spacing:.8px}
+input,textarea{width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--txt);border-radius:7px;padding:8px 10px;font-size:13px}
+input:focus,textarea:focus{outline:none;border-color:var(--acc)}
+button{background:var(--acc);color:#fff;border:0;border-radius:7px;padding:10px 16px;font-size:13.5px;font-weight:600;cursor:pointer}
+button:hover{filter:brightness(1.1)}
+button.ghost{background:transparent;border:1px solid var(--line);color:var(--mut);font-weight:500;padding:6px 10px;font-size:12px}
+button:disabled{opacity:.5;cursor:not-allowed}
+.pill{display:inline-block;padding:2px 9px;border-radius:20px;font-size:11px;font-weight:700;letter-spacing:.4px}
+.pill.run{background:rgba(79,140,255,.15);color:var(--acc)}
+.pill.done{background:rgba(47,208,122,.15);color:var(--ok)}
+.pill.fail{background:rgba(255,93,108,.15);color:var(--err)}
+.pill.part{background:rgba(255,180,84,.15);color:var(--warn)}
+.pill.mut{background:rgba(139,150,179,.12);color:var(--mut)}
+.run-item{padding:10px 12px;border:1px solid var(--line);border-radius:8px;margin-bottom:8px;cursor:pointer}
+.run-item:hover,.run-item.sel{border-color:var(--acc);background:var(--panel2)}
+.run-item .t{font-size:12px;color:var(--mut);font-family:var(--mono)}
+.agent-row{display:grid;grid-template-columns:14px 1fr auto auto;gap:10px;align-items:center;padding:8px 4px;border-bottom:1px solid var(--line)}
+.agent-row:last-child{border-bottom:0}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--mut)}
+.dot.running{background:var(--acc);animation:pulse 1.1s infinite}
+.dot.done{background:var(--ok)}
+.dot.failed{background:var(--err)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+.agent-name{font-size:13px}
+.agent-label{font-size:11.5px;color:var(--mut)}
+.agent-meta{font-family:var(--mono);font-size:11px;color:var(--mut);text-align:right}
+.agent-err{grid-column:2/5;font-size:11.5px;color:var(--err);font-family:var(--mono)}
+.counts{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.count{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:10px 12px}
+.count .n{font-size:20px;font-weight:700}
+.count .l{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.6px}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{text-align:left;color:var(--mut);font-size:11px;text-transform:uppercase;letter-spacing:.7px;padding:7px 9px;border-bottom:1px solid var(--line)}
+td{padding:8px 9px;border-bottom:1px solid var(--line);vertical-align:top}
+tr.click{cursor:pointer}
+tr.click:hover{background:var(--panel2)}
+.score{font-weight:700}
+.score.hi{color:var(--ok)}.score.mid{color:var(--warn)}.score.lo{color:var(--err)}
+details{margin:8px 0}
+summary{cursor:pointer;color:var(--acc);font-size:12.5px}
+.ev{font-size:12px;color:var(--mut);margin:6px 0;padding:8px 10px;background:var(--panel2);border-left:3px solid var(--acc);border-radius:0 6px 6px 0}
+.ev .src{font-family:var(--mono);font-size:11px;color:var(--acc);text-decoration:none;word-break:break-all}
+a{color:var(--acc);text-decoration:none}
+a:hover{text-decoration:underline}
+.email-box{white-space:pre-wrap;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:14px;font-size:13px;line-height:1.55;margin-top:8px}
+.email-subj{font-weight:700;margin-bottom:8px;font-size:13.5px}
+.badge{font-size:10.5px;padding:1px 7px;border-radius:10px;font-weight:700}
+.badge.ok{background:rgba(47,208,122,.15);color:var(--ok)}
+.badge.no{background:rgba(255,93,108,.15);color:var(--err)}
+.badge.part{background:rgba(255,180,84,.15);color:var(--warn)}
+.mono{font-family:var(--mono)}
+.small{font-size:11.5px;color:var(--mut)}
+.tabs{display:flex;gap:6px;margin-bottom:12px}
+.tab{padding:6px 12px;border-radius:7px;font-size:12.5px;cursor:pointer;border:1px solid var(--line);color:var(--mut)}
+.tab.sel{background:var(--acc);color:#fff;border-color:var(--acc)}
+.empty{color:var(--mut);font-size:12.5px;padding:14px;text-align:center}
+.spin{display:inline-block;width:12px;height:12px;border:2px solid var(--acc);border-top-color:transparent;border-radius:50%;animation:sp 1s linear infinite;vertical-align:-2px}
+@keyframes sp{to{transform:rotate(360deg)}}
+#statusline{font-size:12px;color:var(--mut);margin-top:10px;font-family:var(--mono)}
+.footer{max-width:1500px;margin:18px auto 0;padding:16px 0;border-top:1px solid rgba(255,255,255,.06);display:flex;justify-content:space-between;color:var(--mut);font-size:11px}
+@media(max-width:1050px){.grid{grid-template-columns:1fr}.pipeline{grid-template-columns:repeat(4,1fr)}}
+@media(max-width:650px){body{padding:0 12px 20px}.navlinks{display:none}.topbar{height:58px}.hero{padding:20px}.hero h1{font-size:23px}.pipeline{grid-template-columns:repeat(2,1fr)}.counts{grid-template-columns:repeat(2,1fr)}.card{overflow-x:auto}}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><div class="brandmark">⬢</div><span>FlytBase BDR AI</span></div>
+  <nav class="navlinks"><a href="#workspace">Workspace</a><a href="#trace">Agent trace</a><a href="#results">Results</a></nav>
+  <div class="small"><span class="live-dot"></span>Agent system online</div>
+</header>
+<div class="grid" id="workspace">
+  <!-- LEFT COLUMN -->
+  <div>
+    <div class="card" style="margin-bottom:16px">
+      <h1>⬢ BDR Intelligence Agent</h1>
+      <div class="sub">FlytBase · Outbound Account &amp; Contact Generation<br>Multi-agent pipeline · evidence-first · live research</div>
+    </div>
+    <div class="card" style="margin-bottom:16px">
+      <h2>Campaign Brief</h2>
+      <label>Target vertical</label>
+      <textarea id="f-vertical" rows="2">Large-scale lithium, copper, and iron ore mining operations in Latin America</textarea>
+      <label>Geography</label>
+      <input id="f-geo" value="Latin America">
+      <label>Reference account (ICP anchor)</label>
+      <input id="f-ref" value="Sociedad Química y Minera de Chile (SQM)">
+      <label>Target personas</label>
+      <input id="f-personas" value="Head of Operations, VP of HSE, Site Directors">
+      <label>FlytBase angle</label>
+      <input id="f-solution" value="Autonomous drone inspection replacing contracted crews at hazardous, 24/7 extraction sites">
+      <label>Max accounts to verify</label>
+      <input id="f-max" type="number" value="8" min="1" max="20">
+      <div class="row" style="margin-top:14px">
+        <button id="btn-run">▶ RUN AGENT</button>
+        <span class="small" id="run-state"></span>
+      </div>
+      <div id="statusline"></div>
+    </div>
+    <div class="card">
+      <h2>Runs</h2>
+      <div id="run-list"><div class="empty">No runs yet</div></div>
+    </div>
+  </div>
+  <!-- RIGHT COLUMN -->
+  <div>
+    <section class="hero">
+      <div class="eyebrow">Evidence-first outbound intelligence</div>
+      <h1>From one campaign brief to verified, personalized outreach.</h1>
+      <p>Eight specialized AI agents discover ICP-fit mining accounts, verify real decision-makers, research operational signals, write human outreach, and fact-check every claim before it ships.</p>
+      <div class="hero-stats">
+        <div class="hero-stat"><b>8</b> autonomous agents</div>
+        <div class="hero-stat"><b>Live</b> public-source research</div>
+        <div class="hero-stat"><b>Zero</b> fabricated contacts</div>
+        <div class="hero-stat"><b>Claim-level</b> fact checking</div>
+      </div>
+      <div class="pipeline">
+        <div class="stage"><div class="num">A1</div><div class="name">ICP Intel</div></div>
+        <div class="stage"><div class="num">A2</div><div class="name">Discovery</div></div>
+        <div class="stage"><div class="num">A3</div><div class="name">Account Verify</div></div>
+        <div class="stage"><div class="num">A4</div><div class="name">Contacts</div></div>
+        <div class="stage"><div class="num">A5</div><div class="name">Contact Verify</div></div>
+        <div class="stage"><div class="num">A6</div><div class="name">Research</div></div>
+        <div class="stage"><div class="num">A7</div><div class="name">Emails</div></div>
+        <div class="stage"><div class="num">A8</div><div class="name">Fact Check</div></div>
+      </div>
+    </section>
+    <div class="card" style="margin-bottom:16px" id="card-trace" hidden>
+      <div class="row" style="justify-content:space-between">
+        <h2 style="margin:0">Agent Trace <span class="small" id="trace-run-id"></span></h2>
+        <div class="row">
+          <span id="trace-status"></span>
+          <button class="ghost" onclick="exportCSV()">⬇ CSV export</button>
+        </div>
+      </div>
+      <div id="agent-rows" style="margin-top:10px"></div>
+      <div id="fail-box" hidden style="margin-top:12px">
+        <h2 style="color:var(--err)">Failures &amp; recovery notes</h2>
+        <div id="fail-list"></div>
+      </div>
+    </div>
+    <div class="card" style="margin-bottom:16px" id="card-counts" hidden>
+      <h2>Run Output</h2>
+      <div class="counts" id="counts"></div>
+    </div>
+    <div class="card" id="card-results" hidden>
+      <div class="tabs">
+        <div class="tab sel" data-tab="accounts" onclick="setTab('accounts')">Accounts</div>
+        <div class="tab" data-tab="contacts" onclick="setTab('contacts')">Contacts</div>
+        <div class="tab" data-tab="emails" onclick="setTab('emails')">Emails</div>
+        <div class="tab" data-tab="research" onclick="setTab('research')">Research</div>
+      </div>
+      <div id="tab-body"></div>
+    </div>
+  </div>
+</div>
+<footer class="footer"><span>FlytBase BDR Intelligence Agent · Built for evidence-first outbound</span><span>n8n orchestration · FastAPI evidence store · A1–A8 pipeline</span></footer>
+<script>
+let STATE = { run: null, tab: 'accounts', data: null, detail: null, timer: null };
+const $ = s => document.querySelector(s);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmtT = t => t ? new Date(t).toLocaleTimeString() : '';
+
+async function api(path){ const r = await fetch(path); return r.json(); }
+
+async function loadRuns(){
+  const runs = await api('/api/campaigns');
+  const el = $('#run-list');
+  if(!runs.length){ el.innerHTML = '<div class="empty">No runs yet</div>'; return; }
+  el.innerHTML = runs.map(r => `
+    <div class="run-item ${STATE.run===r.id?'sel':''}" onclick="selectRun('${r.id}')">
+      <div class="row" style="justify-content:space-between">
+        <b style="font-size:12.5px">${esc(r.id)}</b>
+        <span class="pill ${pillClass(r.status)}">${esc((r.status||'').replace('_',' '))}</span>
+      </div>
+      <div class="t">${esc((r.created_at||'').replace('T',' ').slice(0,19))} · ${esc(r.reference_account||'').slice(0,30)}</div>
+    </div>`).join('');
+}
+function pillClass(s){ if(!s) return 'mut'; if(s==='running') return 'run'; if(s==='complete') return 'done'; if(s.startsWith('complete')) return 'part'; return 'fail'; }
+
+async function runAgent(){
+  const body = {
+    vertical: $('#f-vertical').value, geography: $('#f-geo').value,
+    reference_account: $('#f-ref').value,
+    target_roles: $('#f-personas').value.split(',').map(s=>s.trim()).filter(Boolean),
+    solution: $('#f-solution').value, max_accounts: Number($('#f-max').value)||8,
+  };
+  $('#btn-run').disabled = true;
+  $('#run-state').innerHTML = '<span class="spin"></span> starting…';
+  try{
+    const r = await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const j = await r.json();
+    if(!r.ok) throw new Error(j.detail||'run failed');
+    setTimeout(()=>loadRuns().then(async ()=>{
+      const runs = await api('/api/campaigns');
+      if(runs.length){ selectRun(runs[0].id); }
+    }), 1500);
+  }catch(e){ $('#run-state').textContent = 'ERROR: '+e.message; }
+  $('#btn-run').disabled = false;
+}
+$('#btn-run').onclick = runAgent;
+
+function setPolling(){
+  if(STATE.timer) clearInterval(STATE.timer);
+  STATE.timer = setInterval(()=>{ if(STATE.run) refreshRun(); }, 2500);
+}
+
+async function selectRun(id){
+  STATE.run = id; STATE.detail = null;
+  $('#card-trace').hidden = false; $('#card-counts').hidden = false; $('#card-results').hidden = false;
+  $('#trace-run-id').textContent = id;
+  setPolling();
+  await loadRuns();
+  await refreshRun();
+}
+
+async function refreshRun(){
+  const cid = STATE.run; if(!cid) return;
+  const [summary, runs] = await Promise.all([api('/api/summary?campaign_id='+cid), api('/api/agent_runs?campaign_id='+cid)]);
+  STATE.data = summary; STATE.detail = null;
+  const st = summary.campaign ? summary.campaign.status : 'running';
+  $('#trace-status').innerHTML = `<span class="pill ${pillClass(st)}">${st==='running'?'<span class="spin"></span> running':' '+st.replace('_',' ')}</span>`;
+  $('#run-state').textContent = st==='running' ? 'agent running…' : 'run '+st.replace('_',' ');
+  if(st!=='running' && STATE.timer){ clearInterval(STATE.timer); STATE.timer=null; }
+
+  // agent trace
+  const order = ['master','icp_agent','account_discovery','account_verification','contact_discovery','contact_verification','deep_research','personalization','fact_checker'];
+  const byAgent = {};
+  for(const r of runs){ (byAgent[r.agent] = byAgent[r.agent] || []).push(r); }
+  let html = '';
+  for(const ag of order){
+    const rs = byAgent[ag] || [];
+    if(!rs.length) continue;
+    const last = rs[rs.length-1];
+    const dur = (last.started_at && last.finished_at) ? Math.round((new Date(last.finished_at)-new Date(last.started_at))/1000)+'s' : '';
+    html += `<div class="agent-row">
+      <div class="dot ${last.status}"></div>
+      <div><div class="agent-name">${esc(last.label||ag)}</div>${last.detail?`<div class="agent-meta">${esc(last.detail).slice(0,90)}</div>`:''}</div>
+      <div class="agent-meta">${esc(ag)}<br>${dur||fmtT(last.started_at)}</div>
+    </div>`;
+    if(last.error) html += `<div class="agent-err">✖ ${esc(last.error)}</div>`;
+  }
+  $('#agent-rows').innerHTML = html || '<div class="empty">no agent activity yet</div>';
+  const fails = summary.failed_agents||[];
+  $('#fail-box').hidden = !fails.length;
+  if(fails.length) $('#fail-list').innerHTML = fails.map(f=>`<div class="ev">agent <b>${esc(f.agent)}</b> failed: <span class="mono">${esc(f.error)}</span></div>`).join('');
+
+  // counts
+  const c = summary.counts||{};
+  const items = [
+    ['qualified accounts', c.qualified_accounts, 'of '+(c.qualified_accounts||0)+(c.rejected_accounts?` / ${c.rejected_accounts} rejected`:'')],
+    ['verified contacts', c.contacts_verified, c.contacts_candidate?`of ${c.contacts_candidate} found`:''],
+    ['research briefs', c.research_briefs, ''],
+    ['final emails', c.emails_final, c.emails_draft?`of ${c.emails_draft} drafted`:''],
+    ['live searches', c.searches, 'evidence collected'],
+    ['failed agents', fails.length, fails.length?'see below':'all stages OK'],
+  ];
+  $('#counts').innerHTML = items.map(([l,n,s])=>`<div class="count"><div class="n">${n==null?'–':n}</div><div class="l">${l}${s?` · ${s}`:''}</div></div>`).join('');
+
+  // results
+  if(c.qualified_accounts || c.contacts_verified || c.emails_final){
+    renderTab();
+  }
+  loadRuns();
+}
+
+async function loadDetail(force=false){
+  if(STATE.detail && !force) return STATE.detail;
+  const [accounts, contacts, research, emails] = await Promise.all([
+    api('/api/accounts?campaign_id='+STATE.run), api('/api/contacts?campaign_id='+STATE.run),
+    api('/api/research?campaign_id='+STATE.run), api('/api/emails?campaign_id='+STATE.run)
+  ]);
+  STATE.detail = { accounts, contacts, research, emails };
+  return STATE.detail;
+}
+
+function setTab(t){ STATE.tab = t; document.querySelectorAll('.tab').forEach(el=>el.classList.toggle('sel', el.dataset.tab===t)); renderTab(); }
+
+async function renderTab(){
+  const d = await loadDetail();
+  const body = $('#tab-body');
+  const t = STATE.tab;
+  if(t==='accounts'){
+    const qs = d.accounts.filter(a=>a.status==='qualified');
+    body.innerHTML = qs.length ? `<table><tr><th>Account</th><th>Country</th><th>Commodities</th><th>ICP score</th><th>Why it fits (BDR note)</th><th>Evidence</th></tr>
+      ${qs.sort((a,b)=>(b.icp_score||0)-(a.icp_score||0)).map(a=>`
+      <tr class="click" onclick="alert('Open contact + email view from Contacts / Emails tabs')">
+        <td><b>${esc(a.name)}</b></td><td>${esc(a.country||'')}</td>
+        <td>${(a.commodities||[]).map(esc).join(', ')}</td>
+        <td class="score ${scoreCls(a.icp_score)}">${a.icp_score==null?'–':a.icp_score}</td>
+        <td>${esc((a.fit_reason||'').slice(0,180))}${(a.fit_reason||'').length>180?'…':''}</td>
+        <td>${(a.evidence||[]).length}</td>
+      </tr>`).join('')}</table>
+      ${qs.length?qs.map(a=>`
+        <details><summary>Why ${esc(a.name)} fits the ICP — evidence</summary>
+          ${(a.why_it_fits||[]).map(w=>`<div class="ev">✓ ${esc(w.point)} ${w.source_url?`<a class="src" href="${esc(w.source_url)}" target="_blank">source</a>`:''}</div>`).join('')}
+          ${(a.evidence||[]).map(e=>`<div class="ev"><b>${esc(e.claim)}</b><br><span class="small">src: ${esc(e.source||'')}${e.published?' · '+esc(e.published):''} · conf ${e.confidence!=null?e.confidence:''}</span><br><span class="small">"${esc((e.extract||'').slice(0,220))}"</span> ${e.url?`<a class="src" href="${esc(e.url)}" target="_blank">${esc(e.url).slice(0,60)}</a>`:''}</div>`).join('')}
+        </details>`).join('') : '<div class="empty">No qualified accounts yet</div>'}`;
+  } else if(t==='contacts'){
+    const vs = d.contacts.filter(c=>c.status==='verified');
+    const cs = d.contacts.filter(c=>c.status==='candidate');
+    body.innerHTML = (vs.length||cs.length) ? `
+      <table><tr><th>Name</th><th>Company</th><th>Role</th><th>Seniority</th><th>Status</th><th>Verification (evidence-based)</th><th>LinkedIn / Email</th></tr>
+      ${[...vs, ...cs].map(c=>`
+      <tr><td><b>${esc(c.name)}</b></td><td>${esc(c.account_name)}</td><td>${esc(c.current_role||c.role||'')}</td>
+      <td>${esc(c.seniority||'')}</td>
+      <td><span class="badge ${c.status==='verified'?'ok':'part'}">${esc(c.status)}</span></td>
+      <td>${esc((c.verification_summary||c.why||'').slice(0,160))}</td>
+      <td class="small mono">${c.linkedin?`<a href="${esc(c.linkedin)}" target="_blank">in</a>`:''} ${c.email?`<span title="${esc(c.email_status||'')}">${esc(c.email)}</span>`:''}${!c.linkedin&&!c.email?'–':''}</td></tr>`).join('')}
+      </table>` : '<div class="empty">No contacts discovered yet</div>';
+  } else if(t==='emails'){
+    const es = d.emails.filter(e=>e.status==='final');
+    body.innerHTML = es.length ? es.map(e=>{
+      const fc = e.fact_check||{};
+      const verdicts = fc.verdicts||[];
+      return `<div style="margin-bottom:18px">
+        <div class="row" style="justify-content:space-between">
+          <b>${esc(e.contact_name)} — ${esc(e.contact_role)} @ ${esc(e.account_name)}</b>
+          <div class="row">
+            <span class="badge ${fc.rewritten?'part':'ok'}">${fc.rewritten?'fact-check: rewritten':'fact-check: passed'}</span>
+            <button class="ghost" onclick="copyEmail(${e.id})">copy email</button>
+          </div>
+        </div>
+        <div class="email-subj">${esc(e.subject)}</div>
+        <div class="email-box">${esc(e.body)}</div>
+        ${e.proof_refs&&e.proof_refs.length?`<div class="small" style="margin-top:6px">Proof referenced: ${e.proof_refs.map(esc).join(', ')}</div>`:''}
+        <details><summary>Fact-check report (${verdicts.length} claims)</summary>
+          ${verdicts.map(v=>`<div class="ev"><span class="badge ${v.verdict==='supported'?'ok':v.verdict==='partial'?'part':'no'}">${esc(v.verdict)}</span> ${esc(v.claim)} ${v.note?`<div class="small">${esc(v.note)}</div>`:''}</div>`).join('')}
+        </details>
+      </div>`;
+    }).join('') : '<div class="empty">No emails generated yet</div>';
+  } else {
+    body.innerHTML = d.research.filter(r=>!r.status).map(r=>`
+      <details style="margin-bottom:10px"><summary><b>${esc(r.account_name)}</b> — research brief</summary>
+        <div class="ev"><b>Profile:</b> ${esc(JSON.stringify(r.company_profile||{}).slice(0,400))}</div>
+        <b class="small">Recent events</b>
+        ${(r.recent_events||[]).slice(0,8).map(ev=>`<div class="ev"><b>${esc(ev.title)}</b> <span class="badge ${ev.is_inference?'part':'ok'}">${ev.is_inference?'inference':'fact'}</span><br>${esc(ev.detail||'')}${ev.url?` <a class="src" href="${esc(ev.url)}" target="_blank">source</a>`:''}</div>`).join('')}
+        <b class="small">Signals (operational / technology / safety)</b>
+        ${[...(r.operational_signals||[]),...(r.technology_signals||[]),...(r.safety_signals||[])].slice(0,10).map(s=>`<div class="ev">${esc(s.signal)} — ${esc(s.detail||'')}</div>`).join('')}
+        <b class="small">FlytBase opportunities</b>
+        ${(r.opportunities||[]).map(o=>`<div class="ev">🎯 ${esc(o.description)}<br><span class="small">${esc(o.reasoning||'')} → angle: ${esc(o.personalization_angle||'')}</span></div>`).join('')}
+      </details>`).join('') || '<div class="empty">No research yet</div>';
+  }
+}
+function scoreCls(s){ if(s==null) return 'lo'; if(s>=70) return 'hi'; if(s>=55) return 'mid'; return 'lo'; }
+async function copyEmail(id){
+  const d = await loadDetail();
+  const e = d.emails.find(x=>x.id===id); if(!e) return;
+  await navigator.clipboard.writeText(e.subject+'\n\n'+e.body);
+  alert('Email copied to clipboard');
+}
+function exportCSV(){ if(STATE.run) window.open('/api/export.csv?campaign_id='+STATE.run, '_blank'); }
+
+loadRuns();
+</script>
+</body>
+</html>

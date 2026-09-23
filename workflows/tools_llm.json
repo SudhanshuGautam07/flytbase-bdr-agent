@@ -1,0 +1,371 @@
+{
+ "name": "BDR :: TOOLS_llm",
+ "nodes": [
+  {
+   "parameters": {
+    "inputSource": "passthrough"
+   },
+   "id": "4263015a-d653-4cc7-b898-d9a4e2457410",
+   "name": "Trigger",
+   "type": "n8n-nodes-base.executeWorkflowTrigger",
+   "typeVersion": 1.2,
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "rules": {
+     "values": [
+      {
+       "renameOutput": true,
+       "outputKey": "openai",
+       "conditions": {
+        "options": {
+         "caseSensitive": true,
+         "leftValue": "",
+         "typeValidation": "loose"
+        },
+        "conditions": [
+         {
+          "id": "de21e7c5-e4fd-48e7-829b-b00663a18e16",
+          "leftValue": "={{ ($env.LLM_PROVIDER || 'openai').toLowerCase() }}",
+          "rightValue": "openai",
+          "operator": {
+           "type": "string",
+           "operation": "equals"
+          }
+         }
+        ],
+        "combinator": "and"
+       }
+      },
+      {
+       "renameOutput": true,
+       "outputKey": "gemini",
+       "conditions": {
+        "options": {
+         "caseSensitive": true,
+         "leftValue": "",
+         "typeValidation": "loose"
+        },
+        "conditions": [
+         {
+          "id": "7ab1d04f-e1c5-4f50-b66f-830ae550d2ae",
+          "leftValue": "={{ ($env.LLM_PROVIDER || 'openai').toLowerCase() }}",
+          "rightValue": "gemini",
+          "operator": {
+           "type": "string",
+           "operation": "equals"
+          }
+         }
+        ],
+        "combinator": "and"
+       }
+      },
+      {
+       "renameOutput": true,
+       "outputKey": "anthropic",
+       "conditions": {
+        "options": {
+         "caseSensitive": true,
+         "leftValue": "",
+         "typeValidation": "loose"
+        },
+        "conditions": [
+         {
+          "id": "a6825e9a-036d-414f-91c8-5dd9b5ee7329",
+          "leftValue": "={{ ($env.LLM_PROVIDER || 'openai').toLowerCase() }}",
+          "rightValue": "anthropic",
+          "operator": {
+           "type": "string",
+           "operation": "equals"
+          }
+         }
+        ],
+        "combinator": "and"
+       }
+      }
+     ]
+    },
+    "options": {
+     "fallbackOutput": "extra"
+    }
+   },
+   "id": "434609c6-5cf6-466a-b2cb-a0d72a435b08",
+   "name": "Provider",
+   "type": "n8n-nodes-base.switch",
+   "typeVersion": 3,
+   "position": [
+    220,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "url": "={{ ($env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\\/$/, '') + '/chat/completions' }}",
+    "method": "POST",
+    "options": {
+     "timeout": 360000
+    },
+    "sendHeaders": true,
+    "headerParameters": {
+     "parameters": [
+      {
+       "name": "Authorization",
+       "value": "={{ 'Bearer ' + String($env.OPENAI_API_KEY || '') }}"
+      },
+      {
+       "name": "Content-Type",
+       "value": "application/json"
+      }
+     ]
+    },
+    "sendBody": true,
+    "specifyBody": "json",
+    "jsonBody": "={{ JSON.stringify({\n  model: $json.model || ($env.LLM_MODEL || 'gpt-4o-mini'),\n  temperature: typeof $json.temperature === 'number' ? $json.temperature : 0.4,\n  reasoning_effort: $json.reasoning_effort || 'none',\n  max_tokens: $json.max_tokens || 1500,\n  messages: [\n    { role: 'system', content: $json.system || 'You are a precise assistant.' },\n    { role: 'user', content: $json.prompt }\n  ]\n}) }}"
+   },
+   "id": "244f9b88-bff6-4d34-a558-e0316afe5a71",
+   "name": "OpenAI HTTP",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    440,
+    -300
+   ],
+   "onError": "continueErrorOutput",
+   "retryOnFail": true,
+   "maxTries": 6,
+   "waitBetweenTries": 4000
+  },
+  {
+   "parameters": {
+    "jsCode": "\nconst r = $json || {};\nconst c = r.choices && r.choices[0] && r.choices[0].message ? r.choices[0].message.content : '';\nreturn [{ json: { ok: true, content: c || '', model: ($json.model || 'gpt-4o-mini') } }];\n"
+   },
+   "id": "2c1c8ac0-e424-40b9-9b81-520ccb41ad2a",
+   "name": "OpenAI Parse",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    660,
+    -300
+   ]
+  },
+  {
+   "parameters": {
+    "url": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+    "method": "POST",
+    "options": {
+     "timeout": 360000
+    },
+    "sendHeaders": true,
+    "headerParameters": {
+     "parameters": [
+      {
+       "name": "x-goog-api-key",
+       "value": "={{ String($env.GEMINI_API_KEY || '') }}"
+      },
+      {
+       "name": "Content-Type",
+       "value": "application/json"
+      }
+     ]
+    },
+    "sendBody": true,
+    "specifyBody": "json",
+    "jsonBody": "={{ JSON.stringify({\n  model: $json.model || ($env.LLM_MODEL || 'gemini-2.0-flash'),\n  temperature: typeof $json.temperature === 'number' ? $json.temperature : 0.4,\n  max_tokens: $json.max_tokens || 1800,\n  messages: [\n    { role: 'system', content: $json.system || 'You are a precise assistant.' },\n    { role: 'user', content: $json.prompt }\n  ]\n}) }}"
+   },
+   "id": "10328b70-31fc-405a-b830-205b76c949ad",
+   "name": "Gemini HTTP",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    440,
+    -100
+   ],
+   "onError": "continueErrorOutput"
+  },
+  {
+   "parameters": {
+    "jsCode": "\nconst r = $json || {};\nconst c = r.choices && r.choices[0] && r.choices[0].message ? r.choices[0].message.content : '';\nreturn [{ json: { ok: true, content: c || '', model: ($json.model || 'gemini-2.0-flash') } }];\n"
+   },
+   "id": "fb0db520-bd2a-4a92-a61f-4ef0dacaf930",
+   "name": "Gemini Parse",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    660,
+    -100
+   ]
+  },
+  {
+   "parameters": {
+    "url": "https://api.anthropic.com/v1/messages",
+    "method": "POST",
+    "options": {
+     "timeout": 360000
+    },
+    "sendHeaders": true,
+    "headerParameters": {
+     "parameters": [
+      {
+       "name": "x-api-key",
+       "value": "={{ String($env.ANTHROPIC_API_KEY || '') }}"
+      },
+      {
+       "name": "anthropic-version",
+       "value": "2023-06-01"
+      },
+      {
+       "name": "Content-Type",
+       "value": "application/json"
+      }
+     ]
+    },
+    "sendBody": true,
+    "specifyBody": "json",
+    "jsonBody": "={{ JSON.stringify({\n  model: $json.model || ($env.LLM_MODEL || 'claude-3-5-haiku-20241022'),\n  max_tokens: $json.max_tokens || 1800,\n  temperature: typeof $json.temperature === 'number' ? $json.temperature : 0.4,\n  system: $json.system || 'You are a precise assistant.',\n  messages: [{ role: 'user', content: $json.prompt }]\n}) }}"
+   },
+   "id": "e13f3bb9-baef-44d4-8ee1-f1e1fc039fa4",
+   "name": "Anthropic HTTP",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    440,
+    100
+   ],
+   "onError": "continueErrorOutput"
+  },
+  {
+   "parameters": {
+    "jsCode": "\nconst r = $json || {};\nconst c = Array.isArray(r.content) ? r.content.map(x => x.text || '').join('') : '';\nreturn [{ json: { ok: true, content: c, model: ($json.model || 'claude-3-5-haiku-20241022') } }];\n"
+   },
+   "id": "bdc2b757-5e6d-434e-b1ac-d67bc5f47e78",
+   "name": "Anthropic Parse",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    660,
+    100
+   ]
+  },
+  {
+   "parameters": {
+    "jsCode": "\nconst err = ($json && $json.error) ? (typeof $json.error === 'string' ? $json.error : ($json.error.message || 'unknown LLM error')) : 'unknown LLM error (check LLM_PROVIDER / API keys)';\nreturn [{ json: { ok: false, content: '', model: null, error: String(err).slice(0, 400) } }];\n"
+   },
+   "id": "92da68bb-8126-4f3a-b528-d234093b19b2",
+   "name": "LLM Fail",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    660,
+    300
+   ]
+  }
+ ],
+ "connections": {
+  "Trigger": {
+   "main": [
+    [
+     {
+      "node": "Provider",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Provider": {
+   "main": [
+    [
+     {
+      "node": "OpenAI HTTP",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Gemini HTTP",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Anthropic HTTP",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "LLM Fail",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "OpenAI HTTP": {
+   "main": [
+    [
+     {
+      "node": "OpenAI Parse",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "LLM Fail",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Gemini HTTP": {
+   "main": [
+    [
+     {
+      "node": "Gemini Parse",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "LLM Fail",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Anthropic HTTP": {
+   "main": [
+    [
+     {
+      "node": "Anthropic Parse",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "LLM Fail",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  }
+ },
+ "settings": {
+  "executionOrder": "v1"
+ },
+ "description": "Tool: provider-agnostic LLM call. In: {system, prompt, model?, temperature?, max_tokens?}. Out: {ok, content, model, error?}.",
+ "active": false
+}

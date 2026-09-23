@@ -1,0 +1,441 @@
+{
+ "name": "BDR :: A8 Fact Checker",
+ "nodes": [
+  {
+   "parameters": {
+    "inputSource": "passthrough"
+   },
+   "id": "c36c88f1-2a67-4bf4-8b25-217ce5c91f3b",
+   "name": "Trigger",
+   "type": "n8n-nodes-base.executeWorkflowTrigger",
+   "typeVersion": 1.2,
+   "position": [
+    0,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "jsCode": "\n// ===== shared helpers (BDR agent) =====\nconst FA = 'http://127.0.0.1:8000';\nasync function ingest(campaign_id, type, payload, retries = 3) {\n  for (let i = 0; i < retries; i++) {\n    try {\n      await this.helpers.httpRequest({ method: 'POST', url: FA + '/api/ingest',\n        body: JSON.stringify({ campaign_id, type, payload }),\n        headers: { 'Content-Type': 'application/json' }, timeout: 15000 });\n      return { ok: true };\n    } catch (e) {\n      if (i === retries - 1) return { ok: false, error: String((e && e.message) || e) };\n      await new Promise(r => setTimeout(r, 1500));\n    }\n  }\n}\nasync function faGet(path, timeout = 30000) {\n  const resp = await this.helpers.httpRequest({ method: 'GET', url: FA + path, timeout });\n  if (typeof resp === 'string') { try { return JSON.parse(resp); } catch (e) { return resp; } }\n  return resp;\n}\nfunction parseJsonLoose(text) {\n  if (!text) return null;\n  let t = String(text).trim();\n  t = t.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();\n  const s = t.indexOf('{'); const e = t.lastIndexOf('}');\n  if (s === -1 || e === -1 || e <= s) return null;\n  try { return JSON.parse(t.slice(s, e + 1)); } catch (err) { return null; }\n}\nfunction htmlToText(html) {\n  if (!html) return '';\n  let h = String(html);\n  h = h.replace(/<script[^>]*>[\\s\\S]*?<\\/script>/gi, ' ');\n  h = h.replace(/<style[^>]*>[\\s\\S]*?<\\/style>/gi, ' ');\n  h = h.replace(/<nav[^>]*>[\\s\\S]*?<\\/nav>/gi, ' ');\n  h = h.replace(/<footer[^>]*>[\\s\\S]*?<\\/footer>/gi, ' ');\n  h = h.replace(/<(br|\\/p|\\/div|\\/h[1-6]|\\/li|\\/tr)[^>]*>/gi, '\\n');\n  h = h.replace(/<[^>]+>/g, ' ');\n  h = h.replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\");\n  h = h.replace(/[ \\t]+/g, ' ');\n  h = h.replace(/\\n\\s*\\n+/g, '\\n');\n  return h.trim();\n}\nfunction parseRss(xml) {\n  const out = [];\n  if (!xml) return out;\n  const items = String(xml).match(/<item>[\\s\\S]*?<\\/item>/g) || [];\n  const grab = (block, tag) => {\n    const m = block.match(new RegExp('<' + tag + '[^>]*>([\\\\s\\\\S]*?)</' + tag + '>', 'i'));\n    return m ? m[1].replace(/<!\\[CDATA\\[|\\]\\]>/g, '').trim() : '';\n  };\n  for (const it of items.slice(0, 12)) {\n    const title = grab(it, 'title').replace(/&amp;/g, '&').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\");\n    const link = grab(it, 'link');\n    const pub = grab(it, 'pubDate');\n    let desc = grab(it, 'description').replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\").replace(/\\s+/g, ' ').trim();\n    if (title && link) out.push({ title, url: link, snippet: desc.slice(0, 500), published: pub || null, source: 'Google News' });\n  }\n  return out;\n}\nfunction safeNode(name) { try { const h = $(name); const n = (h && h.first) ? h.first() : h; if (n && n.json !== undefined) return n; } catch (e) {} return null; }\nfunction outText(name) { const n = safeNode(name); if (!n) return ''; const j = n.json; if (typeof j === 'string') return j; if (j && typeof j.data === 'string') return j.data; return (j && j.json && typeof j.json.data === 'string') ? j.json.data : ''; }\n\nconst t = $input.first().json;\nconst campaign = t.campaign;\nconst emails = Array.isArray(t.emails) ? t.emails : [];\nif (!emails.length) {\n  return [{ json: { __skipped: true, campaign, reason: 'no draft emails to fact-check (personalization produced nothing)' } }];\n}\nlet bundle = [];\ntry { bundle = await faGet('/api/evidence_bundle?campaign_id=' + encodeURIComponent(campaign.id)); } catch (e) { bundle = []; }\nreturn emails.map(e => ({ json: { campaign, email: e, bundle } }));\n"
+   },
+   "id": "384784df-3127-4bd8-8676-6f9ff59731b1",
+   "name": "Prep (itemize)",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    220,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "rules": {
+     "values": [
+      {
+       "renameOutput": true,
+       "outputKey": "yes",
+       "conditions": {
+        "options": {
+         "caseSensitive": true,
+         "leftValue": "",
+         "typeValidation": "loose"
+        },
+        "conditions": [
+         {
+          "id": "5f91f24b-0210-4aae-a48a-93462d75e393",
+          "leftValue": "={{ $json.__skipped === true ? 'yes' : 'no' }}",
+          "rightValue": "yes",
+          "operator": {
+           "type": "string",
+           "operation": "equals"
+          }
+         }
+        ],
+        "combinator": "and"
+       }
+      }
+     ]
+    },
+    "options": {
+     "fallbackOutput": "extra"
+    }
+   },
+   "id": "8303c9ed-96df-4a53-92c1-4b2d908dc39e",
+   "name": "Has Emails?",
+   "type": "n8n-nodes-base.switch",
+   "typeVersion": 3,
+   "position": [
+    440,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "batchSize": 1,
+    "options": {}
+   },
+   "id": "aa2ddeb4-c2d0-4540-a865-e9e66322752e",
+   "name": "Loop",
+   "type": "n8n-nodes-base.splitInBatches",
+   "typeVersion": 3,
+   "position": [
+    660,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "jsCode": "\nconst it = $('Loop').first().json;\nconst e = it.email;\nreturn [{ json: { system: \"You are the Hallucination Checker (claim extractor). Extract every atomic factual claim about the world (company, person, asset, event, technology) from the email below. Ignore greetings and calls to action.\\nRespond with STRICT JSON only: {\\\"claims\\\":[str]}\\nEach claim must be a single checkable statement, phrased in the third person.\", prompt: 'EMAIL SUBJECT: ' + (e.subject || '') + '\\n\\nEMAIL BODY:\\n' + (e.body || ''), temperature: 0.1 } }];\n"
+   },
+   "id": "e52a6194-55eb-4b7a-b5fe-a2471bf8b643",
+   "name": "Prepare Claims",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    660,
+    120
+   ]
+  },
+  {
+   "parameters": {
+    "source": "database",
+    "workflowId": {
+     "__rl": true,
+     "mode": "id",
+     "value": "__WFID:TOOLS_LLM__"
+    },
+    "mode": "once",
+    "workflowInputs": {
+     "mappingMode": "defineBelow",
+     "value": null
+    },
+    "options": {}
+   },
+   "id": "60fc1eee-9665-4e8b-a298-b1cb3f86ebd4",
+   "name": "Call Claims LLM",
+   "type": "n8n-nodes-base.executeWorkflow",
+   "typeVersion": 1.3,
+   "position": [
+    880,
+    120
+   ],
+   "onError": "continueErrorOutput"
+  },
+  {
+   "parameters": {
+    "jsCode": "\nconst it = $('Loop').first().json;\nconst out = $json;\nlet claims = [];\nif (out && out.ok) {\n  const parsed = parseJsonLoose(out.content);\n  if (parsed && Array.isArray(parsed.claims)) claims = parsed.claims.slice(0, 12);\n}\nconst bundleText = JSON.stringify(it.bundle || []).slice(0, 12000);\nreturn [{ json: {\n  system: \"You are the Fact Checker agent. For each claim from the outreach email, decide whether the provided evidence (research brief, account evidence, contact verification) supports it.\\nRespond with STRICT JSON only:\\n{\\\"verdicts\\\":[{\\\"claim\\\":str,\\\"verdict\\\":\\\"supported|partial|unsupported\\\",\\\"note\\\":str,\\\"evidence_ref\\\":str|null}]}\\nRules: \\\"supported\\\" = evidence contains the fact (or a direct paraphrase); \\\"partial\\\" = evidence points at it but not exactly (e.g., an inference stated too strongly); \\\"unsupported\\\" = no evidence at all. Be strict: a claim about a specific site, number, date, or person is unsupported unless the evidence names it.\",\n  prompt: 'CLAIMS (JSON): ' + JSON.stringify(claims) + '\\n\\nEVIDENCE BUNDLE (JSON):\\n' + bundleText,\n  temperature: 0.1\n} }];\n"
+   },
+   "id": "6cfe92a3-7b3b-4c06-802f-b546c62a2cb1",
+   "name": "Prepare Judge",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    1100,
+    120
+   ]
+  },
+  {
+   "parameters": {
+    "source": "database",
+    "workflowId": {
+     "__rl": true,
+     "mode": "id",
+     "value": "__WFID:TOOLS_LLM__"
+    },
+    "mode": "once",
+    "workflowInputs": {
+     "mappingMode": "defineBelow",
+     "value": null
+    },
+    "options": {}
+   },
+   "id": "63b32c6e-6ba8-41a7-9cc5-b2bdaf0e206f",
+   "name": "Call Judge LLM",
+   "type": "n8n-nodes-base.executeWorkflow",
+   "typeVersion": 1.3,
+   "position": [
+    1320,
+    120
+   ],
+   "onError": "continueErrorOutput"
+  },
+  {
+   "parameters": {
+    "jsCode": "\nconst prep = $('Loop').first().json;\nconst jctx = $('Prepare Judge').first().json;\nconst out = $json;\nlet verdicts = [];\nif (out && out.ok) {\n  const parsed = parseJsonLoose(out.content);\n  if (parsed && Array.isArray(parsed.verdicts)) verdicts = parsed.verdicts;\n}\nconst bad = verdicts.filter(v => v.verdict === 'unsupported').length;\nconst partial = verdicts.filter(v => v.verdict === 'partial').length;\nreturn [{ json: {\n  campaign: prep.campaign, email: prep.email, bundle: prep.bundle, verdicts, bad, partial,\n  needsRewrite: bad > 0,\n  system: \"You are the Personalization Agent (BDR writer) for FlytBase, doing a fact-checked rewrite.\\nYou receive the original email plus fact-check verdicts and the research evidence. Rewrite the email so that EVERY factual claim is supported by the provided research: remove or soften unsupported claims, reframe partial ones as hedges (\\\"I believe\\\", \\\"it looks like\\\"), keep the structure, length and tone.\\nRespond with STRICT JSON only: {\\\"subject\\\":str,\\\"body\\\":str,\\\"proof_refs\\\":[str]}\\nConstraints: 150-220 words, human tone, low-friction CTA, no facts outside the provided research.\",\n  prompt: 'ORIGINAL EMAIL\\nSubject: ' + (prep.email.subject || '') + '\\n\\n' + (prep.email.body || '') +\n          '\\n\\nFACT-CHECK VERDICTS (JSON): ' + JSON.stringify(verdicts) +\n          '\\n\\nRESEARCH EVIDENCE (JSON): ' + JSON.stringify(prep.bundle || []).slice(0, 12000),\n  temperature: 0.5\n} }];\n"
+   },
+   "id": "e31b9c27-5b44-45b7-a9bd-d0eadb4c6cc5",
+   "name": "Apply Verdicts",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    1540,
+    120
+   ]
+  },
+  {
+   "parameters": {
+    "conditions": {
+     "options": {
+      "caseSensitive": true,
+      "leftValue": "",
+      "typeValidation": "loose"
+     },
+     "conditions": [
+      {
+       "id": "688e3202-526a-41a4-b7be-b8172ed7c030",
+       "leftValue": "={{ $json.needsRewrite }}",
+       "rightValue": true,
+       "operator": {
+        "type": "boolean",
+        "operation": "true",
+        "singleValue": true
+       }
+      }
+     ],
+     "combinator": "and"
+    },
+    "options": {}
+   },
+   "id": "f5c2fb7f-dbb6-4c19-89c2-322e9013d20d",
+   "name": "Need Rewrite?",
+   "type": "n8n-nodes-base.if",
+   "typeVersion": 2.2,
+   "position": [
+    1760,
+    120
+   ]
+  },
+  {
+   "parameters": {
+    "source": "database",
+    "workflowId": {
+     "__rl": true,
+     "mode": "id",
+     "value": "__WFID:TOOLS_LLM__"
+    },
+    "mode": "once",
+    "workflowInputs": {
+     "mappingMode": "defineBelow",
+     "value": null
+    },
+    "options": {}
+   },
+   "id": "0ba539bf-3a4e-43af-887b-463b02de9296",
+   "name": "Call Rewrite LLM",
+   "type": "n8n-nodes-base.executeWorkflow",
+   "typeVersion": 1.3,
+   "position": [
+    1980,
+    -80
+   ],
+   "onError": "continueErrorOutput"
+  },
+  {
+   "parameters": {
+    "jsCode": "\n// ===== shared helpers (BDR agent) =====\nconst FA = 'http://127.0.0.1:8000';\nasync function ingest(campaign_id, type, payload, retries = 3) {\n  for (let i = 0; i < retries; i++) {\n    try {\n      await this.helpers.httpRequest({ method: 'POST', url: FA + '/api/ingest',\n        body: JSON.stringify({ campaign_id, type, payload }),\n        headers: { 'Content-Type': 'application/json' }, timeout: 15000 });\n      return { ok: true };\n    } catch (e) {\n      if (i === retries - 1) return { ok: false, error: String((e && e.message) || e) };\n      await new Promise(r => setTimeout(r, 1500));\n    }\n  }\n}\nasync function faGet(path, timeout = 30000) {\n  const resp = await this.helpers.httpRequest({ method: 'GET', url: FA + path, timeout });\n  if (typeof resp === 'string') { try { return JSON.parse(resp); } catch (e) { return resp; } }\n  return resp;\n}\nfunction parseJsonLoose(text) {\n  if (!text) return null;\n  let t = String(text).trim();\n  t = t.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();\n  const s = t.indexOf('{'); const e = t.lastIndexOf('}');\n  if (s === -1 || e === -1 || e <= s) return null;\n  try { return JSON.parse(t.slice(s, e + 1)); } catch (err) { return null; }\n}\nfunction htmlToText(html) {\n  if (!html) return '';\n  let h = String(html);\n  h = h.replace(/<script[^>]*>[\\s\\S]*?<\\/script>/gi, ' ');\n  h = h.replace(/<style[^>]*>[\\s\\S]*?<\\/style>/gi, ' ');\n  h = h.replace(/<nav[^>]*>[\\s\\S]*?<\\/nav>/gi, ' ');\n  h = h.replace(/<footer[^>]*>[\\s\\S]*?<\\/footer>/gi, ' ');\n  h = h.replace(/<(br|\\/p|\\/div|\\/h[1-6]|\\/li|\\/tr)[^>]*>/gi, '\\n');\n  h = h.replace(/<[^>]+>/g, ' ');\n  h = h.replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\");\n  h = h.replace(/[ \\t]+/g, ' ');\n  h = h.replace(/\\n\\s*\\n+/g, '\\n');\n  return h.trim();\n}\nfunction parseRss(xml) {\n  const out = [];\n  if (!xml) return out;\n  const items = String(xml).match(/<item>[\\s\\S]*?<\\/item>/g) || [];\n  const grab = (block, tag) => {\n    const m = block.match(new RegExp('<' + tag + '[^>]*>([\\\\s\\\\S]*?)</' + tag + '>', 'i'));\n    return m ? m[1].replace(/<!\\[CDATA\\[|\\]\\]>/g, '').trim() : '';\n  };\n  for (const it of items.slice(0, 12)) {\n    const title = grab(it, 'title').replace(/&amp;/g, '&').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\");\n    const link = grab(it, 'link');\n    const pub = grab(it, 'pubDate');\n    let desc = grab(it, 'description').replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\").replace(/\\s+/g, ' ').trim();\n    if (title && link) out.push({ title, url: link, snippet: desc.slice(0, 500), published: pub || null, source: 'Google News' });\n  }\n  return out;\n}\nfunction safeNode(name) { try { const h = $(name); const n = (h && h.first) ? h.first() : h; if (n && n.json !== undefined) return n; } catch (e) {} return null; }\nfunction outText(name) { const n = safeNode(name); if (!n) return ''; const j = n.json; if (typeof j === 'string') return j; if (j && typeof j.data === 'string') return j.data; return (j && j.json && typeof j.json.data === 'string') ? j.json.data : ''; }\n\nconst base = $('Apply Verdicts').first().json;\nconst rew = $json;\nlet finalEmail = base.email;\nlet rewritten = false;\nif (base.needsRewrite && rew && rew.ok) {\n  const parsed = parseJsonLoose(rew.content);\n  if (parsed && parsed.body) {\n    finalEmail = { ...base.email, subject: parsed.subject || base.email.subject, body: parsed.body,\n                   proof_refs: parsed.proof_refs || base.email.proof_refs };\n    rewritten = true;\n  }\n}\nawait ingest(base.campaign.id, 'email_update', {\n  match: { contact_name: base.email.contact_name, account_name: base.email.account_name },\n  patch: {\n    subject: finalEmail.subject, body: finalEmail.body, proof_refs: finalEmail.proof_refs || [],\n    status: 'final',\n    fact_check: { verdicts: base.verdicts, unsupported: base.bad, partial: base.partial, rewritten }\n  }\n});\nreturn [{ json: { contact: base.email.contact_name, rewritten, unsupported: base.bad, partial: base.partial } }];\n"
+   },
+   "id": "225f5046-2769-4b53-a907-fa6f5c4a3679",
+   "name": "Persist Final",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    2200,
+    120
+   ]
+  },
+  {
+   "parameters": {
+    "jsCode": "\n// ===== shared helpers (BDR agent) =====\nconst FA = 'http://127.0.0.1:8000';\nasync function ingest(campaign_id, type, payload, retries = 3) {\n  for (let i = 0; i < retries; i++) {\n    try {\n      await this.helpers.httpRequest({ method: 'POST', url: FA + '/api/ingest',\n        body: JSON.stringify({ campaign_id, type, payload }),\n        headers: { 'Content-Type': 'application/json' }, timeout: 15000 });\n      return { ok: true };\n    } catch (e) {\n      if (i === retries - 1) return { ok: false, error: String((e && e.message) || e) };\n      await new Promise(r => setTimeout(r, 1500));\n    }\n  }\n}\nasync function faGet(path, timeout = 30000) {\n  const resp = await this.helpers.httpRequest({ method: 'GET', url: FA + path, timeout });\n  if (typeof resp === 'string') { try { return JSON.parse(resp); } catch (e) { return resp; } }\n  return resp;\n}\nfunction parseJsonLoose(text) {\n  if (!text) return null;\n  let t = String(text).trim();\n  t = t.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();\n  const s = t.indexOf('{'); const e = t.lastIndexOf('}');\n  if (s === -1 || e === -1 || e <= s) return null;\n  try { return JSON.parse(t.slice(s, e + 1)); } catch (err) { return null; }\n}\nfunction htmlToText(html) {\n  if (!html) return '';\n  let h = String(html);\n  h = h.replace(/<script[^>]*>[\\s\\S]*?<\\/script>/gi, ' ');\n  h = h.replace(/<style[^>]*>[\\s\\S]*?<\\/style>/gi, ' ');\n  h = h.replace(/<nav[^>]*>[\\s\\S]*?<\\/nav>/gi, ' ');\n  h = h.replace(/<footer[^>]*>[\\s\\S]*?<\\/footer>/gi, ' ');\n  h = h.replace(/<(br|\\/p|\\/div|\\/h[1-6]|\\/li|\\/tr)[^>]*>/gi, '\\n');\n  h = h.replace(/<[^>]+>/g, ' ');\n  h = h.replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\");\n  h = h.replace(/[ \\t]+/g, ' ');\n  h = h.replace(/\\n\\s*\\n+/g, '\\n');\n  return h.trim();\n}\nfunction parseRss(xml) {\n  const out = [];\n  if (!xml) return out;\n  const items = String(xml).match(/<item>[\\s\\S]*?<\\/item>/g) || [];\n  const grab = (block, tag) => {\n    const m = block.match(new RegExp('<' + tag + '[^>]*>([\\\\s\\\\S]*?)</' + tag + '>', 'i'));\n    return m ? m[1].replace(/<!\\[CDATA\\[|\\]\\]>/g, '').trim() : '';\n  };\n  for (const it of items.slice(0, 12)) {\n    const title = grab(it, 'title').replace(/&amp;/g, '&').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\");\n    const link = grab(it, 'link');\n    const pub = grab(it, 'pubDate');\n    let desc = grab(it, 'description').replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/&quot;/g, '\"').replace(/&#39;/g, \"'\").replace(/\\s+/g, ' ').trim();\n    if (title && link) out.push({ title, url: link, snippet: desc.slice(0, 500), published: pub || null, source: 'Google News' });\n  }\n  return out;\n}\nfunction safeNode(name) { try { const h = $(name); const n = (h && h.first) ? h.first() : h; if (n && n.json !== undefined) return n; } catch (e) {} return null; }\nfunction outText(name) { const n = safeNode(name); if (!n) return ''; const j = n.json; if (typeof j === 'string') return j; if (j && typeof j.data === 'string') return j.data; return (j && j.json && typeof j.json.data === 'string') ? j.json.data : ''; }\n\nconst p0 = $('Prep (itemize)').first().json;\nconst skipped = p0.__skipped === true;\nconst campaign = p0.campaign;\nlet emails = [];\ntry { emails = await faGet('/api/emails?campaign_id=' + encodeURIComponent(campaign.id) + '&status=final'); } catch (e) {}\nemails = Array.isArray(emails) ? emails : [];\nreturn [{ json: { stage: 'fact_check', status: skipped ? 'skipped' : 'ok', reason: skipped ? p0.reason : null, emails, counts: { fact_checked: emails.length } } }];\n"
+   },
+   "id": "13992a10-928e-40ea-a3c5-d803e771b17f",
+   "name": "Return",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    660,
+    -220
+   ]
+  }
+ ],
+ "connections": {
+  "Trigger": {
+   "main": [
+    [
+     {
+      "node": "Prep (itemize)",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Prep (itemize)": {
+   "main": [
+    [
+     {
+      "node": "Has Emails?",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Has Emails?": {
+   "main": [
+    [
+     {
+      "node": "Return",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Loop",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Loop": {
+   "main": [
+    [
+     {
+      "node": "Return",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Prepare Claims",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Prepare Claims": {
+   "main": [
+    [
+     {
+      "node": "Call Claims LLM",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Call Claims LLM": {
+   "main": [
+    [
+     {
+      "node": "Prepare Judge",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Prepare Judge",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Prepare Judge": {
+   "main": [
+    [
+     {
+      "node": "Call Judge LLM",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Call Judge LLM": {
+   "main": [
+    [
+     {
+      "node": "Apply Verdicts",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Apply Verdicts",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Apply Verdicts": {
+   "main": [
+    [
+     {
+      "node": "Need Rewrite?",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Need Rewrite?": {
+   "main": [
+    [
+     {
+      "node": "Call Rewrite LLM",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Persist Final",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Call Rewrite LLM": {
+   "main": [
+    [
+     {
+      "node": "Persist Final",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Persist Final",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Persist Final": {
+   "main": [
+    [
+     {
+      "node": "Loop",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  }
+ },
+ "settings": {
+  "executionOrder": "v1"
+ },
+ "description": "Agent 8: claim-level fact check vs the evidence store; rewrites emails with unsupported claims. In: {campaign, emails[]}. Out: {stage, status, emails[], counts}.",
+ "active": false
+}
