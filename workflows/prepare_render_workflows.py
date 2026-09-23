@@ -38,8 +38,8 @@ def main():
             raw = raw.replace(f"__WFID:{key}__", target)
         wf = json.loads(raw)
         wf["id"] = wid
-        # Preserve active state for unattended CLI import; publish command creates the current version.
-        wf["active"] = True
+        # Import as draft; publish:workflow creates the production version before n8n starts.
+        wf["active"] = False
         # CLI import accepts exported workflow fields; description is harmless.
         with open(os.path.join(OUT, filename), "w") as f:
             json.dump(wf, f)

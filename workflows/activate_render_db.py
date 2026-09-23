@@ -30,13 +30,24 @@ try:
     if "active" not in cols:
         raise RuntimeError(f"active column missing from {table}: {sorted(cols)}")
     marks = ",".join("?" for _ in IDS)
-    con.execute(f"UPDATE {table} SET active=1 WHERE id IN ({marks})", IDS)
+    # n8n 2.x uses activeVersionId for the production version; `active` alone is legacy state.
+    if "activeVersionId" in cols and "versionId" in cols:
+        con.execute(
+            f"UPDATE {table} SET active=1, activeVersionId=versionId WHERE id IN ({marks})",
+            IDS,
+        )
+        selected = "id, name, active, versionId, activeVersionId"
+    else:
+        con.execute(f"UPDATE {table} SET active=1 WHERE id IN ({marks})", IDS)
+        selected = "id, name, active"
     con.commit()
-    rows = list(con.execute(f"SELECT id, name, active FROM {table} WHERE id IN ({marks}) ORDER BY name", IDS))
+    rows = list(con.execute(f"SELECT {selected} FROM {table} WHERE id IN ({marks}) ORDER BY name", IDS))
     if len(rows) != len(IDS) or not all(r[2] for r in rows):
         raise RuntimeError(f"activation incomplete: {rows}")
-    print(f"Activated {len(rows)} workflows in {db}")
-    for wid, name, active in rows:
-        print(f"  active={active} id={wid} name={name}")
+    if "activeVersionId" in cols and not all(r[3] and r[3] == r[4] for r in rows):
+        raise RuntimeError(f"active version incomplete: {rows}")
+    print(f"Activated {len(rows)} workflows in {db}; columns={sorted(cols)}")
+    for row in rows:
+        print(f"  row={row}")
 finally:
     con.close()
